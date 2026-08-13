@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+.vscode
+.DS_Store
+.env*
+**/target
+*.log
+*.gguf
+*.safetensors

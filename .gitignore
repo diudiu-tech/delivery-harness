@@ -1,0 +1,48 @@
+# Maven
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven Wrapper (keep the wrapper JAR)
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDEs and editors
+.idea/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+.vscode/
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+
+# Local model data and large model artifacts
+.ollama/
+*.gguf
+*.safetensors
+
+# Test and coverage output
+coverage/
+*.exec

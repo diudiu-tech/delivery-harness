@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose a focused improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or engineering problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Include alternatives and tradeoffs where useful.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Security and data impact
+      description: Note any effect on prompts, external services, persistence, permissions, or sensitive data.

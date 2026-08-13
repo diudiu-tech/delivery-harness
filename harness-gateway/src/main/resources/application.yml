@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: delivery-harness
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+harness:
+  llm:
+    default-endpoint: ${HARNESS_LLM_ENDPOINT:http://localhost:11434}
+    default-model: ${HARNESS_LLM_MODEL:qwen2.5:7b}
+    api-key: ${HARNESS_LLM_API_KEY:}
+    timeout-seconds: ${HARNESS_LLM_TIMEOUT_SECONDS:120}
+  guardrail:
+    max-compensation-amount: ${HARNESS_MAX_COMPENSATION_AMOUNT:50.0}

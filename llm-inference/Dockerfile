@@ -1,4 +1,4 @@
-FROM ollama/ollama:0.32.4
+FROM ollama/ollama:0.32.6
 
 LABEL org.opencontainers.image.title="Delivery Harness Ollama runtime" \
       org.opencontainers.image.description="Pinned local LLM runtime for Delivery Harness"

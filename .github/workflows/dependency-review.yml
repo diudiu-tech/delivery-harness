@@ -1,0 +1,35 @@
+name: Dependency Review
+
+# Blocks a pull request that introduces a dependency with a known
+# vulnerability or an incompatible licence.
+#
+# Deliberately GitHub's native advisory database rather than an OWASP
+# dependency-check run: the latter downloads and caches the full NVD feed,
+# which is slow and fails intermittently on rate limits. A supply-chain gate
+# that is flaky gets disabled within a month, and a disabled gate is worse
+# than none because it still looks like coverage.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          # Copyleft licences would change this project's distribution terms;
+          # it ships under MIT.
+          deny-licenses: AGPL-3.0, AGPL-3.0-only, AGPL-3.0-or-later, GPL-3.0, GPL-3.0-only, GPL-3.0-or-later

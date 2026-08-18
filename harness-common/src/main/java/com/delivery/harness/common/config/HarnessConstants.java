@@ -11,6 +11,8 @@ public final class HarnessConstants {
     // Workflow step types
     public static final String STEP_RETRIEVAL = "retrieval";
     public static final String STEP_TOOL_CALL = "tool_call";
+    /** Deterministic computation over already-retrieved evidence. */
+    public static final String STEP_ANALYSIS = "analysis";
     public static final String STEP_LLM_CALL = "llm_call";
     public static final String STEP_GUARDRAIL = "guardrail";
     public static final String STEP_FORMAT = "format";

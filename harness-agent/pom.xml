@@ -31,6 +31,15 @@
             <groupId>com.delivery.harness</groupId>
             <artifactId>harness-tool</artifactId>
         </dependency>
+        <!--
+          AgentOrchestrator records one trace and a set of counters per
+          execution. harness-observe depends only on harness-common, so this
+          introduces no cycle.
+        -->
+        <dependency>
+            <groupId>com.delivery.harness</groupId>
+            <artifactId>harness-observe</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>

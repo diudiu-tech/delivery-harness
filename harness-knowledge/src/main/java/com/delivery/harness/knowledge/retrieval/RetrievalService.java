@@ -26,7 +26,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RetrievalService {
 
-    private final VectorSearchService vectorSearchService;
     private final RuleBaseService ruleBaseService;
     private final CaseBaseService caseBaseService;
     private final KnowledgeChunkRepository chunkRepository;

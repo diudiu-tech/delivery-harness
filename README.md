@@ -30,14 +30,14 @@ The following are intentionally **not** claimed as implemented: autonomous agent
 
 ```mermaid
 flowchart LR
-    Client["REST client"] --> Gateway["harness-gateway"]
-    Gateway --> Agent["harness-agent\nfixed workflows"]
-    Agent --> Tools["harness-tool\nmock business tools"]
-    Agent --> Knowledge["harness-knowledge\nin-memory retrieval"]
-    Agent --> LLM["harness-llm\nOpenAI-compatible client"]
+    Client["REST client"] --> Api["harness-api\nHTTP, validation, tracing"]
+    Api --> Agent["core: agent\nfixed workflows"]
+    Agent --> Tools["core: tool\nsynthetic business tools"]
+    Agent --> Knowledge["core: knowledge\nseeded rules, lexical retrieval"]
+    Agent --> LLM["core: llm\nOpenAI-compatible client"]
+    Agent --> Observe["core: observe\ntrace and metrics"]
     LLM --> Model["Ollama or compatible endpoint"]
-    Gateway --> Eval["harness-eval"]
-    Gateway --> Observe["harness-observe"]
+    Api --> Eval["core: eval"]
     Eval --> Agent
 ```
 
@@ -47,17 +47,12 @@ All workflow steps run synchronously in the gateway process. Apart from the conf
 
 | Module | Responsibility |
 | --- | --- |
-| `harness-common` | DTOs, exceptions, JSON/text helpers, and trace context |
-| `harness-gateway` | Executable Spring Boot REST application and request logging |
-| `harness-agent` | Workflow registry, two fixed workflows, timeline analysis, formatting, and advisory checks |
-| `harness-tool` | Argument-driven mock tools and tool invocation records |
-| `harness-llm` | Model routing, JSON extraction, and the HTTP transport behind `LlmClient` |
-| `harness-knowledge` | In-memory documents, chunks, seeded rules and cases, and lexical retrieval |
-| `harness-eval` | Seeded cases, synchronous evaluation runs, and lexical scorers |
-| `harness-observe` | Bounded in-memory trace store, metrics, and feedback |
-| `llm-inference` | Pinned Ollama container definition and smoke-test script |
+| `harness-common` | DTOs, exceptions, JSON/text helpers, and trace context. No dependencies. |
+| `harness-core` | Everything that decides something: `agent` (workflows, timeline, guardrails, formatting), `tool` (synthetic business tools), `llm` (model routing and transport), `knowledge` (seeded rules and cases, lexical retrieval), `eval` (cases, runs, scorers), `observe` (traces, metrics, feedback). |
+| `harness-api` | Executable Spring Boot application: controllers, validation, exception mapping, request tracing. |
+| `llm-inference` | Pinned Ollama container definition and smoke-test script. |
 
-Decisions that shaped this layout — including which components were deleted and why vector retrieval was not adopted — are recorded in [`docs/adr/`](docs/adr/).
+Java packages are unchanged — `com.delivery.harness.{agent,tool,llm,knowledge,eval,observe}` still exist and still mean the same thing. Only the Maven build boundary moved; see [ADR-0004](docs/adr/0004-three-maven-modules-instead-of-nine.md).
 
 ## Prerequisites
 
@@ -88,8 +83,8 @@ The Compose port binds to `127.0.0.1` only. Model weights are downloaded separat
 ### 3. Run the API
 
 ```bash
-./mvnw -pl harness-gateway -am package
-java -jar harness-gateway/target/harness-gateway-0.1.0-SNAPSHOT.jar
+./mvnw -pl harness-api -am package
+java -jar harness-api/target/harness-api.jar
 ```
 
 The API listens on `http://localhost:8080` by default.

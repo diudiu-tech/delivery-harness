@@ -15,6 +15,7 @@
 /.github/                       @diudiu-tech/maintainers
 /.mvn/                          @diudiu-tech/maintainers
 
-# Anything that can move money or is on the model's trust boundary.
-/harness-agent/src/main/java/com/delivery/harness/agent/guardrail/     @diudiu-tech/maintainers
-/harness-tool/src/main/java/com/delivery/harness/tool/compensation/    @diudiu-tech/maintainers
+# Anything that can move money or sits on the model's trust boundary.
+/harness-core/src/main/java/com/delivery/harness/agent/guardrail/    @diudiu-tech/maintainers
+/harness-core/src/main/java/com/delivery/harness/tool/compensation/  @diudiu-tech/maintainers
+/harness-core/src/main/resources/seed/                               @diudiu-tech/maintainers

@@ -30,14 +30,14 @@
 
 ```mermaid
 flowchart LR
-    Client["REST 客户端"] --> Gateway["harness-gateway"]
-    Gateway --> Agent["harness-agent\n固定工作流"]
-    Agent --> Tools["harness-tool\nMock 业务工具"]
-    Agent --> Knowledge["harness-knowledge\n内存检索"]
-    Agent --> LLM["harness-llm\nOpenAI 兼容客户端"]
+    Client["REST 客户端"] --> Api["harness-api\nHTTP、校验、Trace"]
+    Api --> Agent["core: agent\n固定工作流"]
+    Agent --> Tools["core: tool\n合成业务工具"]
+    Agent --> Knowledge["core: knowledge\n播种规则与词法检索"]
+    Agent --> LLM["core: llm\nOpenAI 兼容客户端"]
+    Agent --> Observe["core: observe\nTrace 与指标"]
     LLM --> Model["Ollama 或兼容服务"]
-    Gateway --> Eval["harness-eval"]
-    Gateway --> Observe["harness-observe"]
+    Api --> Eval["core: eval"]
     Eval --> Agent
 ```
 
@@ -47,17 +47,12 @@ flowchart LR
 
 | 模块 | 实际职责 |
 | --- | --- |
-| `harness-common` | DTO、异常、JSON/文本工具和 Trace 上下文 |
-| `harness-gateway` | 可执行的 Spring Boot REST 应用和请求日志 |
-| `harness-agent` | 工作流注册表、两条固定工作流、时间轴拆解、输出格式化和建议式检查 |
-| `harness-tool` | 由入参驱动的 Mock 工具和工具调用记录 |
-| `harness-llm` | 模型路由、JSON 提取，以及 `LlmClient` 接口背后的 HTTP 实现 |
-| `harness-knowledge` | 内存文档、切片、开机播种的规则与案例，以及词法检索 |
-| `harness-eval` | 播种评测用例、同步评测运行和词法评分器 |
-| `harness-observe` | 有界内存 Trace 存储、指标和反馈 |
+| `harness-common` | DTO、异常、JSON/文本工具和 Trace 上下文。无依赖。 |
+| `harness-core` | 所有做决策的部分：`agent`（工作流、时间轴、Guardrail、输出格式化）、`tool`（合成业务工具）、`llm`（模型路由与传输）、`knowledge`（播种规则与案例、词法检索）、`eval`（用例、评测运行、评分器）、`observe`（Trace、指标、反馈）。 |
+| `harness-api` | 可执行的 Spring Boot 应用：Controller、校验、异常映射、请求 Trace。 |
 | `llm-inference` | 固定版本的 Ollama 容器定义和冒烟测试脚本 |
 
-影响当前结构的关键决策——包括删掉了哪些组件、以及为什么在当前语料规模下不上向量检索——记录在 [`docs/adr/`](docs/adr/)。
+Java 包名没有变——`com.delivery.harness.{agent,tool,llm,knowledge,eval,observe}` 仍然存在，含义也不变。移动的只是 Maven 构建边界，见 [ADR-0004](docs/adr/0004-three-maven-modules-instead-of-nine.md)。
 
 ## 环境要求
 
@@ -88,8 +83,8 @@ Compose 端口只绑定到 `127.0.0.1`。模型权重需要单独下载，不属
 ### 3. 启动 API
 
 ```bash
-./mvnw -pl harness-gateway -am package
-java -jar harness-gateway/target/harness-gateway-0.1.0-SNAPSHOT.jar
+./mvnw -pl harness-api -am package
+java -jar harness-api/target/harness-api.jar
 ```
 
 API 默认监听 `http://localhost:8080`。

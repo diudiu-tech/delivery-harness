@@ -27,15 +27,16 @@
         <relativePath/>
     </parent>
 
+    <!--
+      Three modules, in dependency order. The previous eight expressed a
+      package layout, not a build boundary: they shared one release cycle,
+      one runtime and one team, and every one of them depended on
+      harness-common. See docs/adr/0004-three-maven-modules-instead-of-nine.md.
+    -->
     <modules>
         <module>harness-common</module>
-        <module>harness-gateway</module>
-        <module>harness-agent</module>
-        <module>harness-knowledge</module>
-        <module>harness-tool</module>
-        <module>harness-llm</module>
-        <module>harness-eval</module>
-        <module>harness-observe</module>
+        <module>harness-core</module>
+        <module>harness-api</module>
     </modules>
 
     <properties>
@@ -54,35 +55,9 @@
             </dependency>
             <dependency>
                 <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-llm</artifactId>
+                <artifactId>harness-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-knowledge</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-tool</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-agent</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-eval</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-observe</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
         </dependencies>
     </dependencyManagement>
 

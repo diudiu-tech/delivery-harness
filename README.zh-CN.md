@@ -14,12 +14,15 @@
 ## 已实现能力
 
 - 两条同步工作流：异常订单分析、赔付建议。
-- 六个本地注册工具：订单、轨迹、ETA、运力、赔付规则和工单。
-- 兼容 OpenAI Chat Completions 的客户端，以及按场景选择模型的路由。
-- 内存文档导入、文本切片、关键词检索、规则库和案例库。
-- 内存评测 Case、同步评测运行，以及基础规则/专家答案/工具调用评分。
-- 请求 Trace ID、API 耗时日志、反馈存储和建议式输出检查。
-- 本地 Ollama 配置、单元测试、Maven Wrapper 和 GitHub Actions CI。
+- 四个本地注册工具：订单、ETA、站点运力、赔付规则。每个工具的返回都由入参决定。
+- 合成订单按 order_id 落到六个具名场景，其中包含一个准时送达的对照单。
+- 确定性时间轴拆解（调度等待 / 到店 / 出餐等待 / 路途四段），与模型答案并列返回，作为模型必须跑赢的基线。
+- 赔付金额由规则引擎决定，模型不参与定价（见 [ADR-0002](docs/adr/0002-rule-engine-owns-the-compensation-amount.md)）。
+- 兼容 OpenAI Chat Completions 的客户端抽象为接口，工作流可在无模型环境下测试。
+- 内存文档导入、文本切片、按查询词命中率打分的词法检索，以及开机播种的规则库与案例库。
+- 内存评测运行；当用例未声明期望时，评分器报告「未度量」而不是满分。
+- 请求 Trace ID、真实的分步耗时、有界 Trace 存储、按场景的指标、反馈存储和建议式输出检查。
+- 本地 Ollama 配置、95 项测试、Maven Wrapper 和 GitHub Actions CI。
 
 以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
 
@@ -46,15 +49,15 @@ flowchart LR
 | --- | --- |
 | `harness-common` | DTO、异常、JSON/文本工具和 Trace 上下文 |
 | `harness-gateway` | 可执行的 Spring Boot REST 应用和请求日志 |
-| `harness-agent` | 工作流注册表、两条固定工作流、输出格式化和建议式检查 |
-| `harness-tool` | 确定性 Mock 工具和工具调用记录 |
-| `harness-llm` | 模型路由、Prompt 注册、JSON 提取和 HTTP 客户端 |
-| `harness-knowledge` | 内存文档、切片、规则、案例和关键词检索 |
-| `harness-eval` | 内存 Case、同步评测运行和基础评分器 |
-| `harness-observe` | 内存 Trace、指标、反馈和审计基础组件 |
+| `harness-agent` | 工作流注册表、两条固定工作流、时间轴拆解、输出格式化和建议式检查 |
+| `harness-tool` | 由入参驱动的 Mock 工具和工具调用记录 |
+| `harness-llm` | 模型路由、JSON 提取，以及 `LlmClient` 接口背后的 HTTP 实现 |
+| `harness-knowledge` | 内存文档、切片、开机播种的规则与案例，以及词法检索 |
+| `harness-eval` | 播种评测用例、同步评测运行和词法评分器 |
+| `harness-observe` | 有界内存 Trace 存储、指标和反馈 |
 | `llm-inference` | 固定版本的 Ollama 容器定义和冒烟测试脚本 |
 
-`harness-gateway/src/main/resources/db/migration` 下的 SQL 是未来持久化方案的参考 Schema，当前内存实现不会执行这些脚本。
+影响当前结构的关键决策——包括删掉了哪些组件、以及为什么在当前语料规模下不上向量检索——记录在 [`docs/adr/`](docs/adr/)。
 
 ## 环境要求
 
@@ -164,6 +167,15 @@ curl --fail-with-body \
 | `HARNESS_LLM_TIMEOUT_SECONDS` | `120` | 模型读取超时秒数 |
 | `HARNESS_MAX_COMPENSATION_AMOUNT` | `50.0` | 建议式赔付金额上限检查 |
 
+以下 Spring 配置项可在 `application.yml` 或 `--property=value` 中设置：
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `harness.compensation.approval-threshold` | `10.0` | 赔付金额达到该值需人工审批 |
+| `harness.knowledge.seed.enabled` | `true` | 启动时载入合成规则库与案例库 |
+| `harness.eval.seed.enabled` | `true` | 启动时载入初始评测用例 |
+| `harness.observe.max-traces` | `500` | 内存 Trace 环形缓冲容量 |
+
 安装模型后可运行冒烟测试：
 
 ```bash
@@ -176,7 +188,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-当前共 30 项测试，覆盖文本切片边界、模型输出 JSON 提取、Guardrail、评测输入、Trace/错误语义，以及应用启动/API 行为。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
+当前共 95 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
 
 ## 安全与数据处理
 
@@ -184,28 +196,29 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 - 工具数据与地址均为合成示例；公开部署时请勿替换为真实个人数据。
 - 导入的知识内容会影响 Prompt，应将知识导入视为 Prompt Injection 信任边界。
 - 建议式检查器只识别少量短语和金额条件，不是完整策略引擎。
-- 内存存储是无持久化、无容量治理的演示组件，重启后数据清空。
+- 内存存储无持久化，重启后数据清空；Trace 存储有容量上限，其余仍无容量治理。
 - 报告漏洞或部署衍生项目之前，请阅读 [SECURITY.md](SECURITY.md)。
 
 ## 已知限制
 
-- 工具返回确定性 Mock 数据，不调用真实配送系统。
-- 知识检索使用子串匹配和固定分数；向量检索类只是脚手架。
-- 规则、文档、案例、评测、反馈、指标、Trace 和审计记录均未持久化。
-- 评测评分器基于简单字符串匹配，未经统计校准。
-- 工作流要求模型输出 JSON，但最终结果目前仍保留模型原始文本。
+- 工具返回合成数据，不调用真实配送系统。数据会随入参变化——这让流水线可被度量，但不代表它准确。
+- 检索是词法命中率，不是语义检索。中文按空白和标点切分而非分词，召回取决于查询与规则是否共享同一短语（见 [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)）。
+- 规则、文档、案例、评测、反馈、指标和 Trace 均未持久化，重启即丢失。
+- 评测评分器是词法的，定位是发现回归而非认证质量。六条合成用例不足以证明准确率；真实结论需要来自线上流量的标注集。
+- `needs_human_review` 与 `approval_required` 由 Guardrail 结果、解析是否成功、模型置信度和是否与基线一致推导得出。这是「如实报告」而非「授权」：系统不执行任何付款。
 - Guardrail 会在工作流步骤和最终输出中返回通过/失败，但不能替代人工复核。
-- PostgreSQL 参考 Schema 尚未连接 Repository。
+- 当前没有持久化层。此前版本附带过一份从不执行的 PostgreSQL Schema，已删除，以免让读者误以为持久化已存在。
 
 ## Roadmap
 
 - 增加 API 鉴权、授权与请求配额。
 - 用版本化 Adapter 和契约测试替换 Mock 工具。
 - 通过显式 Profile 接入持久化 Repository 和 Migration。
-- 实现 Embedding、向量检索和引用校验。
 - 持久化 Trace、指标、反馈和审计事件，并增加保留策略。
 - 引入类型化工作流输出、更强策略执行和敏感信息脱敏。
-- 扩充评测集与经过校准的质量/安全指标。
+- 用真实异常单构建标注评测集，度量 top-1 归因准确率并与确定性基线对比。若模型跑不赢基线，它就不该留在归因链路上。
+- 度量人工处理时长的前后差值。没有这个数，系统无法证明自己节省了什么。
+- 在当前语料规模下，Embedding 与向量检索**刻意不在** Roadmap 上；重新开启的条件见 [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)。
 
 ## 参与贡献
 

@@ -1,0 +1,82 @@
+[
+  {
+    "caseId": "KC-001",
+    "caseType": "resolved",
+    "scenario": "abnormal_order_analysis",
+    "title": "商家出餐慢导致整体超时",
+    "summary": "骑手到店后等待28分钟才取到餐，其余各段均在正常区间。归因为商家出餐慢，适用 ANA-001，向商家发起出餐时效告警。",
+    "expertAnswer": "商家出餐慢",
+    "tags": ["超时", "商家出餐慢", "归因"],
+    "status": "CLOSED"
+  },
+  {
+    "caseId": "KC-002",
+    "caseType": "resolved",
+    "scenario": "abnormal_order_analysis",
+    "title": "高峰期运力不足导致接单延迟",
+    "summary": "下单后22分钟才有骑手接单，站点运力比0.95。归因为运力不足，适用 ANA-002，触发临时调度。",
+    "expertAnswer": "运力不足",
+    "tags": ["超时", "运力不足", "归因"],
+    "status": "CLOSED"
+  },
+  {
+    "caseId": "KC-003",
+    "caseType": "resolved",
+    "scenario": "abnormal_order_analysis",
+    "title": "暴雨导致路途耗时翻倍",
+    "summary": "路途耗时长达44分钟，基准ETA约18分钟，当日暴雨预警。归因为天气异常，适用 ANA-003，不追究骑手责任。",
+    "expertAnswer": "天气异常",
+    "tags": ["超时", "天气", "暴雨", "路途耗时长"],
+    "status": "CLOSED"
+  },
+  {
+    "caseId": "KC-004",
+    "caseType": "resolved",
+    "scenario": "abnormal_order_analysis",
+    "title": "天气正常但路途耗时异常",
+    "summary": "路途耗时长，天气晴、路况畅通，实际耗时为基准ETA的2倍以上。归因为骑手绕路，适用 ANA-004，转入骑手行为核查。",
+    "expertAnswer": "骑手绕路",
+    "tags": ["超时", "骑手", "绕路", "路途耗时长"],
+    "status": "CLOSED"
+  },
+  {
+    "caseId": "KC-005",
+    "caseType": "resolved",
+    "scenario": "abnormal_order_analysis",
+    "title": "未超时的用户投诉",
+    "summary": "用户投诉配送慢，但实际送达早于承诺时间。判定无异常，适用 ANA-006，仅做安抚说明，不予赔付。",
+    "expertAnswer": "无异常",
+    "tags": ["正常单核查", "无异常"],
+    "status": "CLOSED"
+  },
+  {
+    "caseId": "KC-006",
+    "caseType": "resolved",
+    "scenario": "compensation_suggestion",
+    "title": "严重超时赔付执行",
+    "summary": "超时35分钟，订单金额64元，按 COMP-001 赔付订单金额50%并封顶20元，实付20元，已人工审批。",
+    "expertAnswer": "适用 COMP-001，按比例赔付并封顶",
+    "tags": ["赔付", "超时", "严重"],
+    "status": "CLOSED"
+  },
+  {
+    "caseId": "KC-007",
+    "caseType": "resolved",
+    "scenario": "compensation_suggestion",
+    "title": "一般超时发券",
+    "summary": "超时18分钟，按 COMP-002 发放5元优惠券，未达审批线，自动执行。",
+    "expertAnswer": "适用 COMP-002，发放5元优惠券",
+    "tags": ["赔付", "超时", "一般"],
+    "status": "CLOSED"
+  },
+  {
+    "caseId": "KC-008",
+    "caseType": "resolved",
+    "scenario": "compensation_suggestion",
+    "title": "餐品洒漏需人工核实",
+    "summary": "用户上传照片主张餐品洒漏，证据不足以判断洒漏程度。按 COMP-004 转人工核实后再定档，不由系统直接给结论。",
+    "expertAnswer": "适用 COMP-004，需人工核实证据",
+    "tags": ["赔付", "餐品", "洒漏", "人工"],
+    "status": "CLOSED"
+  }
+]

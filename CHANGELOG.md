@@ -6,10 +6,20 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added
 
+- Architecture Decision Records under `docs/adr/`.
 - English and Simplified Chinese documentation.
 - MIT license and GitHub community health files.
 - Maven Wrapper, CI, CodeQL, and Dependabot configuration.
 - Unit and application smoke tests.
+
+### Removed
+
+- Classes with no call sites: `FallbackHandler`, `CitationService`,
+  `ReplaySimulator`, `AuditService`.
+- Beans injected but never invoked: `VectorSearchService`, `PromptRegistry`,
+  and the `LlmGateway` methods that were their only callers.
+- Tools registered but unreachable without a tool-calling loop: `ticket_query`
+  and `order_trajectory`.
 
 ### Changed
 

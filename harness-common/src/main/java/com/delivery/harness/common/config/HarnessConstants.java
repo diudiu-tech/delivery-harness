@@ -28,11 +28,9 @@ public final class HarnessConstants {
 
     // Tool names
     public static final String TOOL_ORDER_QUERY = "order_query";
-    public static final String TOOL_ORDER_TRAJECTORY = "order_trajectory";
     public static final String TOOL_ETA_QUERY = "eta_query";
     public static final String TOOL_CAPACITY_QUERY = "capacity_query";
     public static final String TOOL_COMPENSATION_RULE = "compensation_rule";
-    public static final String TOOL_TICKET_QUERY = "ticket_query";
 
     // Eval metrics
     public static final String METRIC_RULE_ACCURACY = "rule_accuracy";

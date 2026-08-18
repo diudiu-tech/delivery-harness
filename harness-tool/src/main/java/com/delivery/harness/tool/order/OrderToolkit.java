@@ -25,7 +25,6 @@ public class OrderToolkit {
     @PostConstruct
     public void init() {
         toolGateway.register(TOOL_ORDER_QUERY, buildDefinition(), this::queryOrder);
-        toolGateway.register(TOOL_ORDER_TRAJECTORY, buildTrajectoryDefinition(), this::queryTrajectory);
     }
 
     private ToolResult queryOrder(Map<String, Object> params) {
@@ -86,39 +85,10 @@ public class OrderToolkit {
                 .build();
     }
 
-    private ToolResult queryTrajectory(Map<String, Object> params) {
-        String orderId = (String) params.get("order_id");
-        Map<String, Object> p1 = new HashMap<>();
-        p1.put("lat", 39.9087); p1.put("lng", 116.3975); p1.put("time", "10:00"); p1.put("event", "到店");
-        Map<String, Object> p2 = new HashMap<>();
-        p2.put("lat", 39.9100); p2.put("lng", 116.4000); p2.put("time", "10:20"); p2.put("event", "取餐");
-        Map<String, Object> p3 = new HashMap<>();
-        p3.put("lat", 39.9120); p3.put("lng", 116.4030); p3.put("time", "10:40"); p3.put("event", "配送中");
-        Map<String, Object> p4 = new HashMap<>();
-        p4.put("lat", 39.9150); p4.put("lng", 116.4050); p4.put("time", "10:55"); p4.put("event", "送达");
-
-        Map<String, Object> trajectory = new HashMap<>();
-        trajectory.put("order_id", orderId);
-        trajectory.put("points", Arrays.asList(p1, p2, p3, p4));
-        trajectory.put("total_distance_meters", 1200);
-        trajectory.put("total_duration_seconds", 3300);
-        return ToolResult.builder().toolName(TOOL_ORDER_TRAJECTORY).success(true).data(trajectory).build();
-    }
-
     private ToolDefinition buildDefinition() {
         return ToolDefinition.builder()
                 .toolName(TOOL_ORDER_QUERY)
                 .description("查询订单详情，包括订单状态、时间节点、骑手商家信息")
-                .category("order")
-                .parameters(Collections.singletonMap("order_id", ToolDefinition.ParameterDef.builder()
-                        .name("order_id").type("string").description("订单号").required(true).build()))
-                .build();
-    }
-
-    private ToolDefinition buildTrajectoryDefinition() {
-        return ToolDefinition.builder()
-                .toolName(TOOL_ORDER_TRAJECTORY)
-                .description("查询订单骑手轨迹")
                 .category("order")
                 .parameters(Collections.singletonMap("order_id", ToolDefinition.ParameterDef.builder()
                         .name("order_id").type("string").description("订单号").required(true).build()))

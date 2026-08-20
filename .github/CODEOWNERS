@@ -1,0 +1,21 @@
+# Code owners are requested for review automatically on every pull request
+# touching a matching path. Order matters: the last matching pattern wins.
+
+# Default owner for everything not matched below.
+*                               @diudiu-tech/maintainers
+
+# Decisions and public contracts change slowly and need a deliberate review.
+/docs/adr/                      @diudiu-tech/maintainers
+/README.md                      @diudiu-tech/maintainers
+/README.zh-CN.md                @diudiu-tech/maintainers
+/SECURITY.md                    @diudiu-tech/maintainers
+
+# Build, CI, and supply chain.
+/pom.xml                        @diudiu-tech/maintainers
+/.github/                       @diudiu-tech/maintainers
+/.mvn/                          @diudiu-tech/maintainers
+
+# Anything that can move money or sits on the model's trust boundary.
+/harness-core/src/main/java/com/delivery/harness/agent/guardrail/    @diudiu-tech/maintainers
+/harness-core/src/main/java/com/delivery/harness/tool/compensation/  @diudiu-tech/maintainers
+/harness-core/src/main/resources/seed/                               @diudiu-tech/maintainers

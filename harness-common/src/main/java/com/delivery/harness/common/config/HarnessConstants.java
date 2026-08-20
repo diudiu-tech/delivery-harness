@@ -11,6 +11,8 @@ public final class HarnessConstants {
     // Workflow step types
     public static final String STEP_RETRIEVAL = "retrieval";
     public static final String STEP_TOOL_CALL = "tool_call";
+    /** Deterministic computation over already-retrieved evidence. */
+    public static final String STEP_ANALYSIS = "analysis";
     public static final String STEP_LLM_CALL = "llm_call";
     public static final String STEP_GUARDRAIL = "guardrail";
     public static final String STEP_FORMAT = "format";
@@ -28,11 +30,9 @@ public final class HarnessConstants {
 
     // Tool names
     public static final String TOOL_ORDER_QUERY = "order_query";
-    public static final String TOOL_ORDER_TRAJECTORY = "order_trajectory";
     public static final String TOOL_ETA_QUERY = "eta_query";
     public static final String TOOL_CAPACITY_QUERY = "capacity_query";
     public static final String TOOL_COMPENSATION_RULE = "compensation_rule";
-    public static final String TOOL_TICKET_QUERY = "ticket_query";
 
     // Eval metrics
     public static final String METRIC_RULE_ACCURACY = "rule_accuracy";

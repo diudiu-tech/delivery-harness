@@ -1,10 +1,13 @@
 name: CI
 
 on:
+  # Every pushed branch, not only main. A stacked pull request whose base is
+  # another feature branch does not match `pull_request: branches: [main]`, so
+  # with the previous filter the second and later reviews in a chain ran with
+  # no CI at all — which looks identical to CI passing.
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,10 +33,39 @@ jobs:
           cache: maven
 
       - name: Verify shell syntax
-        run: bash -n llm-inference/smoke-test.sh
+        run: |
+          bash -n llm-inference/smoke-test.sh
+          bash -n tools/check-format.sh
 
       - name: Validate Compose configuration
         run: docker compose config --quiet
 
+      # Runs before the build so a whitespace failure reports in two seconds
+      # rather than after a four-minute compile.
+      - name: Check formatting
+        run: ./tools/check-format.sh
+
+      # JaCoCo's threshold is enforced in the verify phase, so a coverage
+      # failure reports last, after the tests it depends on.
       - name: Build and test
         run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      # Uploaded even on failure: a coverage gate that fails without showing
+      # which lines are uncovered costs the reviewer their next twenty minutes.
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: '**/target/site/jacoco/'
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/'
+          if-no-files-found: warn
+          retention-days: 7

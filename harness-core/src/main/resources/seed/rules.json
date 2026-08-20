@@ -1,0 +1,112 @@
+[
+  {
+    "ruleId": "COMP-001",
+    "ruleName": "严重超时赔付",
+    "ruleType": "compensation",
+    "category": "超时赔付",
+    "content": "超时30分钟以上，赔付订单金额的50%，最高不超过20元。需人工审批。",
+    "priority": 100,
+    "enabled": true,
+    "tags": ["超时", "赔付", "严重"]
+  },
+  {
+    "ruleId": "COMP-002",
+    "ruleName": "一般超时赔付",
+    "ruleType": "compensation",
+    "category": "超时赔付",
+    "content": "超时15至30分钟，赔付5元优惠券。",
+    "priority": 90,
+    "enabled": true,
+    "tags": ["超时", "赔付", "一般"]
+  },
+  {
+    "ruleId": "COMP-003",
+    "ruleName": "轻微超时赔付",
+    "ruleType": "compensation",
+    "category": "超时赔付",
+    "content": "超时15分钟以内，致歉并赠送1元红包。",
+    "priority": 80,
+    "enabled": true,
+    "tags": ["超时", "赔付", "轻微"]
+  },
+  {
+    "ruleId": "COMP-004",
+    "ruleName": "餐品洒漏赔付",
+    "ruleType": "compensation",
+    "category": "餐品问题",
+    "content": "餐品洒漏导致不可食用，全额退款；部分洒漏，赔付订单金额50%。需人工核实照片证据。",
+    "priority": 100,
+    "enabled": true,
+    "tags": ["餐品", "洒漏", "赔付"]
+  },
+  {
+    "ruleId": "COMP-005",
+    "ruleName": "错单赔付",
+    "ruleType": "compensation",
+    "category": "错单",
+    "content": "送错订单，优先补送正确订单，同时赔付5元优惠券。",
+    "priority": 95,
+    "enabled": true,
+    "tags": ["错单", "赔付"]
+  },
+  {
+    "ruleId": "ANA-001",
+    "ruleName": "超时归因-商家出餐慢",
+    "ruleType": "analysis",
+    "category": "超时归因",
+    "content": "骑手到店至取餐的等待时长（merchant_prep_minutes）超过站点平均值2倍以上时，判定商家出餐慢为超时主因。",
+    "priority": 100,
+    "enabled": true,
+    "tags": ["超时", "归因", "商家", "商家出餐慢"]
+  },
+  {
+    "ruleId": "ANA-002",
+    "ruleName": "超时归因-运力不足",
+    "ruleType": "analysis",
+    "category": "超时归因",
+    "content": "站点运力比（capacity_ratio）超过0.85，且下单至接单等待时长（dispatch_wait_minutes）显著高于站点均值时，判定运力不足为超时主因。",
+    "priority": 90,
+    "enabled": true,
+    "tags": ["超时", "归因", "运力", "运力不足"]
+  },
+  {
+    "ruleId": "ANA-003",
+    "ruleName": "超时归因-天气异常",
+    "ruleType": "analysis",
+    "category": "超时归因",
+    "content": "当日有暴雨、暴雪或大风预警，且路途耗时（on_road_minutes）显著超过基准ETA时，判定天气异常为超时主因。",
+    "priority": 85,
+    "enabled": true,
+    "tags": ["超时", "归因", "天气", "暴雨", "路途耗时长"]
+  },
+  {
+    "ruleId": "ANA-004",
+    "ruleName": "超时归因-骑手绕路",
+    "ruleType": "analysis",
+    "category": "超时归因",
+    "content": "路途耗时长且天气正常、路况畅通时，路途耗时（on_road_minutes）显著超过基准ETA，判定骑手绕路或中途接其他单为超时主因。",
+    "priority": 80,
+    "enabled": true,
+    "tags": ["超时", "归因", "骑手", "绕路", "路途耗时长"]
+  },
+  {
+    "ruleId": "ANA-005",
+    "ruleName": "超时归因-骑手到店慢",
+    "ruleType": "analysis",
+    "category": "超时归因",
+    "content": "接单至到店时长（to_shop_minutes）明显高于该距离的合理值时，判定骑手到店慢为超时主因，需结合骑手当时并单情况核实。",
+    "priority": 75,
+    "enabled": true,
+    "tags": ["超时", "归因", "骑手", "骑手到店慢"]
+  },
+  {
+    "ruleId": "ANA-006",
+    "ruleName": "未超时不予归因",
+    "ruleType": "analysis",
+    "category": "正常单核查",
+    "content": "实际送达时间未超过承诺时间时，判定为无异常，不得给出超时归因结论，也不触发赔付。",
+    "priority": 120,
+    "enabled": true,
+    "tags": ["正常单核查", "无异常", "归因"]
+  }
+]

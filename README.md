@@ -14,12 +14,15 @@ An AI harness reference implementation for on-demand delivery operations. It com
 ## What is implemented
 
 - Two synchronous workflows: abnormal-order analysis and compensation suggestion.
-- Six locally registered tools for orders, trajectories, ETA, capacity, compensation rules, and tickets.
-- OpenAI-compatible chat-completions client with scenario-based model selection.
-- In-memory document ingestion, text chunking, keyword retrieval, rules, and case stores.
-- In-memory evaluation runs with simple rule, expert-answer, and tool-call scorers.
-- Request trace IDs, API timing logs, feedback storage, and advisory output checks.
-- A local Ollama profile, unit tests, Maven Wrapper, and GitHub Actions CI.
+- Four locally registered tools for orders, ETA, station capacity, and compensation rules. Every tool derives its result from its arguments.
+- Synthetic orders that vary by order ID across six named scenarios, including one delivered on time.
+- A deterministic timeline that splits an order into dispatch wait, to-shop, merchant prep, and on-road legs, reported alongside the model's answer as the baseline it has to beat.
+- Compensation amounts decided by the rule engine, never by the model ([ADR-0002](docs/adr/0002-rule-engine-owns-the-compensation-amount.md)).
+- OpenAI-compatible chat-completions client behind an interface, so workflows are testable without a model.
+- In-memory document ingestion, text chunking, lexical retrieval scored by query-term overlap, and a rule and case base seeded at startup.
+- In-memory evaluation runs whose scorers report "not measured" rather than a perfect score when a case declares no expectation.
+- Request trace IDs, per-step durations, a bounded trace store, per-scenario metrics, feedback storage, and advisory output checks.
+- A local Ollama profile, 100 tests, Maven Wrapper, and GitHub Actions CI.
 
 The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, durable persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
 
@@ -27,14 +30,14 @@ The following are intentionally **not** claimed as implemented: autonomous agent
 
 ```mermaid
 flowchart LR
-    Client["REST client"] --> Gateway["harness-gateway"]
-    Gateway --> Agent["harness-agent\nfixed workflows"]
-    Agent --> Tools["harness-tool\nmock business tools"]
-    Agent --> Knowledge["harness-knowledge\nin-memory retrieval"]
-    Agent --> LLM["harness-llm\nOpenAI-compatible client"]
+    Client["REST client"] --> Api["harness-api\nHTTP, validation, tracing"]
+    Api --> Agent["core: agent\nfixed workflows"]
+    Agent --> Tools["core: tool\nsynthetic business tools"]
+    Agent --> Knowledge["core: knowledge\nseeded rules, lexical retrieval"]
+    Agent --> LLM["core: llm\nOpenAI-compatible client"]
+    Agent --> Observe["core: observe\ntrace and metrics"]
     LLM --> Model["Ollama or compatible endpoint"]
-    Gateway --> Eval["harness-eval"]
-    Gateway --> Observe["harness-observe"]
+    Api --> Eval["core: eval"]
     Eval --> Agent
 ```
 
@@ -44,17 +47,12 @@ All workflow steps run synchronously in the gateway process. Apart from the conf
 
 | Module | Responsibility |
 | --- | --- |
-| `harness-common` | DTOs, exceptions, JSON/text helpers, and trace context |
-| `harness-gateway` | Executable Spring Boot REST application and request logging |
-| `harness-agent` | Workflow registry, two fixed workflows, formatting, and advisory checks |
-| `harness-tool` | Deterministic mock tools and tool invocation records |
-| `harness-llm` | Model routing, prompt registry, JSON extraction, and HTTP client |
-| `harness-knowledge` | In-memory documents, chunks, rules, cases, and keyword retrieval |
-| `harness-eval` | In-memory cases, synchronous evaluation runs, and basic scorers |
-| `harness-observe` | In-memory trace/metric/feedback/audit primitives |
-| `llm-inference` | Pinned Ollama container definition and smoke-test script |
+| `harness-common` | DTOs, exceptions, JSON/text helpers, and trace context. No dependencies. |
+| `harness-core` | Everything that decides something: `agent` (workflows, timeline, guardrails, formatting), `tool` (synthetic business tools), `llm` (model routing and transport), `knowledge` (seeded rules and cases, lexical retrieval), `eval` (cases, runs, scorers), `observe` (traces, metrics, feedback). |
+| `harness-api` | Executable Spring Boot application: controllers, validation, exception mapping, request tracing. |
+| `llm-inference` | Pinned Ollama container definition and smoke-test script. |
 
-The SQL files under `harness-gateway/src/main/resources/db/migration` are a proposed future persistence schema. They are not executed by the current in-memory implementation.
+Java packages are unchanged — `com.delivery.harness.{agent,tool,llm,knowledge,eval,observe}` still exist and still mean the same thing. Only the Maven build boundary moved; see [ADR-0004](docs/adr/0004-three-maven-modules-instead-of-nine.md).
 
 ## Prerequisites
 
@@ -85,8 +83,8 @@ The Compose port binds to `127.0.0.1` only. Model weights are downloaded separat
 ### 3. Run the API
 
 ```bash
-./mvnw -pl harness-gateway -am package
-java -jar harness-gateway/target/harness-gateway-0.1.0-SNAPSHOT.jar
+./mvnw -pl harness-api -am package
+java -jar harness-api/target/harness-api.jar
 ```
 
 The API listens on `http://localhost:8080` by default.
@@ -162,6 +160,15 @@ Copy `.env.example` if you want a local reference. Spring reads the following en
 | `HARNESS_LLM_TIMEOUT_SECONDS` | `120` | Model read timeout |
 | `HARNESS_MAX_COMPENSATION_AMOUNT` | `50.0` | Advisory maximum amount check |
 
+Additional Spring properties, settable in `application.yml` or as `--property=value`:
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `harness.compensation.approval-threshold` | `10.0` | Payouts at or above this value require a human approver |
+| `harness.knowledge.seed.enabled` | `true` | Load the synthetic rule and case base at startup |
+| `harness.eval.seed.enabled` | `true` | Load the starter evaluation cases at startup |
+| `harness.observe.max-traces` | `500` | Size of the in-memory trace ring |
+
 Run the model smoke test after installing the configured model:
 
 ```bash
@@ -174,7 +181,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-The current suite contains 30 tests covering text splitting edge cases, model-output JSON extraction, guardrails, evaluation inputs, trace/error semantics, and application startup/API behavior. CI runs the same Maven verification on every push and pull request.
+The suite contains 100 tests. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
 
 ## Security and data handling
 
@@ -187,23 +194,24 @@ The current suite contains 30 tests covering text splitting edge cases, model-ou
 
 ## Known limitations
 
-- Tool implementations return deterministic mock data rather than calling delivery systems.
-- Knowledge retrieval uses substring matching and fixed scores; the vector-search class is only a scaffold.
-- Rules, documents, cases, evaluations, feedback, metrics, traces, and audit records are not durable.
-- The evaluation scorers use simple string matching and are not statistically validated.
-- Workflows ask the model for JSON but currently retain the raw model response in the final result.
+- Tool implementations return synthetic data rather than calling delivery systems. The data varies with its arguments, which makes the pipeline testable — it does not make it accurate.
+- Retrieval is lexical term overlap, not semantic search. CJK text is split on whitespace and punctuation rather than segmented, so recall depends on the query and the rule sharing a phrase ([ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)).
+- Rules, documents, cases, evaluations, feedback, metrics, and traces are not durable and are lost on restart.
+- The evaluation scorers are lexical and are calibrated to catch regressions, not to certify quality. Six synthetic cases cannot establish accuracy; a real claim needs a labelled set drawn from production traffic.
+- `needs_human_review` and `approval_required` are derived from guardrail outcome, parse success, model confidence and baseline agreement. This is reporting, not authority: nothing here executes a payment.
 - Guardrails report pass/fail in workflow steps and the final output, but do not replace human review.
-- The proposed PostgreSQL schema is not connected to repositories.
+- There is no persistence layer. A prior revision shipped an unexecuted PostgreSQL schema; it was removed rather than left to imply otherwise.
 
 ## Roadmap
 
 - Add authenticated, authorized API access and request quotas.
 - Replace mock tools with versioned adapters and contract tests.
 - Add durable repositories and migrations behind explicit profiles.
-- Implement embedding generation, vector retrieval, and citation verification.
 - Persist traces, metrics, feedback, and audit events with retention limits.
 - Introduce typed workflow outputs, stronger policy enforcement, and redaction.
-- Expand evaluation datasets and calibrated quality/safety metrics.
+- Build a labelled evaluation set from real abnormal orders and measure top-1 attribution accuracy against the deterministic baseline. If the model does not beat that baseline, the model is not earning its place in the attribution path.
+- Measure reviewer handling time before and after. Without it, the system cannot demonstrate that it saves anything.
+- Embedding generation and vector retrieval are deliberately **not** on this roadmap at the current corpus size; see [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md) for the conditions that would reopen it.
 
 ## Contributing
 

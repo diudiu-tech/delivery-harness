@@ -27,21 +27,44 @@
         <relativePath/>
     </parent>
 
+    <!--
+      Three modules, in dependency order. The previous eight expressed a
+      package layout, not a build boundary: they shared one release cycle,
+      one runtime and one team, and every one of them depended on
+      harness-common. See docs/adr/0004-three-maven-modules-instead-of-nine.md.
+    -->
     <modules>
         <module>harness-common</module>
-        <module>harness-gateway</module>
-        <module>harness-agent</module>
-        <module>harness-knowledge</module>
-        <module>harness-tool</module>
-        <module>harness-llm</module>
-        <module>harness-eval</module>
-        <module>harness-observe</module>
+        <module>harness-core</module>
+        <module>harness-api</module>
     </modules>
 
     <properties>
         <java.version>17</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <jacoco.version>0.8.13</jacoco.version>
+
+        <!--
+          Coverage floor for harness-core, the module that holds every
+          decision. A ratchet, not a target: raise it whenever a branch lands
+          above it, never lower it to make a build pass — a drop is the
+          finding.
+
+          Calibrated against a real build, not guessed: harness-core measures
+          0.2557 (395 of 1545 lines), so the floor is 0.25. Headroom is
+          deliberately thin, which is what a ratchet is for.
+
+          That number is low, and the reason is a measurement artefact rather
+          than untested code: the end-to-end tests that exercise the workflows
+          live in harness-api, so the harness-core lines they cover are not
+          attributed here. jacoco:report-aggregate across modules is the fix
+          and would likely more than double this figure. Until that lands,
+          read this as "nobody deleted the unit tests", not as a quality
+          statement.
+        -->
+        <jacoco.core.line.minimum>0.25</jacoco.core.line.minimum>
     </properties>
 
     <dependencyManagement>
@@ -54,35 +77,9 @@
             </dependency>
             <dependency>
                 <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-llm</artifactId>
+                <artifactId>harness-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-knowledge</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-tool</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-agent</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-eval</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.delivery.harness</groupId>
-                <artifactId>harness-observe</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
         </dependencies>
     </dependencyManagement>
 
@@ -122,6 +119,42 @@
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
+            </plugin>
+            <!--
+              Coverage measurement everywhere; the threshold is enforced only
+              in harness-core, where the decisions live. Reporting never fails
+              a build.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <excludes>
+                        <!-- Lombok-generated accessors on data carriers. -->
+                        <exclude>com/delivery/harness/common/dto/**</exclude>
+                        <exclude>com/delivery/harness/common/exception/**</exclude>
+                        <exclude>com/delivery/harness/common/config/**</exclude>
+                        <exclude>com/delivery/harness/llm/gateway/Llm*Request*.class</exclude>
+                        <exclude>com/delivery/harness/llm/gateway/Llm*Response*.class</exclude>
+                        <exclude>com/delivery/harness/llm/gateway/LlmMessage.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -35,6 +35,14 @@ public class WorkflowExecution {
         private Integer order;
         private String stepType;
         private String name;
+
+        /**
+         * Registry name of the invoked tool for {@code tool_call} steps, null
+         * otherwise. {@code name} is a human-readable label and is not a
+         * stable identifier, so evaluation and metrics must key on this field.
+         */
+        private String toolName;
+
         private String status;
         private Map<String, Object> input;
         private Map<String, Object> output;

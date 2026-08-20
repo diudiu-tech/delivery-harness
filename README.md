@@ -22,7 +22,7 @@ An AI harness reference implementation for on-demand delivery operations. It com
 - In-memory document ingestion, text chunking, lexical retrieval scored by query-term overlap, and a rule and case base seeded at startup.
 - In-memory evaluation runs whose scorers report "not measured" rather than a perfect score when a case declares no expectation.
 - Request trace IDs, per-step durations, a bounded trace store, per-scenario metrics, feedback storage, and advisory output checks.
-- A local Ollama profile, 95 tests, Maven Wrapper, and GitHub Actions CI.
+- A local Ollama profile, 100 tests, Maven Wrapper, and GitHub Actions CI.
 
 The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, durable persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
 
@@ -181,7 +181,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-The suite contains 95 tests. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
+The suite contains 100 tests. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
 
 ## Security and data handling
 

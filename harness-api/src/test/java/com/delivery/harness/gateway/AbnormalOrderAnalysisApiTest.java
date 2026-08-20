@@ -167,7 +167,15 @@ class AbnormalOrderAnalysisApiTest {
     void asksForReviewWhenTheModelDisagreesWithTheBaseline() throws Exception {
         // Baseline for TEST001 is 商家出餐慢; the model blames the weather.
         stubLlmClient.respondWith("""
-                {"primary_cause": "天气异常", "applicable_rules": ["ANA-003"], "confidence": "HIGH"}
+                {
+                  "primary_cause": "天气异常",
+                  "secondary_causes": [],
+                  "evidence_chain": [],
+                  "applicable_rules": ["ANA-003"],
+                  "suggested_actions": [],
+                  "risk_notes": [],
+                  "confidence": "HIGH"
+                }
                 """);
 
         analyze("TEST001")

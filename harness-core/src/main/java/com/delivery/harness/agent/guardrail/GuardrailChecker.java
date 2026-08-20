@@ -32,6 +32,10 @@ public class GuardrailChecker {
     /** Any mention of the amount field, whether or not the value parses. */
     private static final Pattern AMOUNT_FIELD_MENTION = Pattern.compile("\"?suggested_amount\"?\\s*[:：]");
 
+    /** Currency expressions in prose, such as 20元, ￥20 or ¥ 20.00. */
+    private static final Pattern CURRENCY_AMOUNT_MENTION = Pattern.compile(
+            "(?:[¥￥]\\s*-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)|-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s*元)");
+
     @Value("${harness.guardrail.max-compensation-amount:50.0}")
     private double maxCompensationAmount;
 
@@ -99,6 +103,17 @@ public class GuardrailChecker {
      */
     public boolean mentionsAmountField(String content) {
         return content != null && AMOUNT_FIELD_MENTION.matcher(content).find();
+    }
+
+    /**
+     * True when the model proposes a payout either as a forbidden field or in
+     * prose. Numeric evidence such as minutes or order ids is intentionally
+     * allowed; only currency-marked expressions are treated as amounts.
+     */
+    public boolean mentionsCompensationAmount(String content) {
+        return content != null
+                && (AMOUNT_FIELD_MENTION.matcher(content).find()
+                || CURRENCY_AMOUNT_MENTION.matcher(content).find());
     }
 
     private boolean checkAmountLimit(String content) {

@@ -58,7 +58,7 @@ public class OutputFormatter {
         Map<String, Object> analysis = parseModelJson(modelOutput);
         String primaryCause = asText(analysis.get("primary_cause"));
         String confidence = asText(analysis.get("confidence"));
-        boolean parsed = !analysis.isEmpty();
+        boolean parsed = isValidAbnormalAnalysis(analysis);
         boolean agreesWithBaseline = agreesWithBaseline(primaryCause, timeline);
 
         List<String> reviewReasons = new ArrayList<>();
@@ -107,7 +107,7 @@ public class OutputFormatter {
             boolean guardrailPassed) {
 
         Map<String, Object> justification = parseModelJson(modelOutput);
-        boolean parsed = !justification.isEmpty();
+        boolean parsed = isValidCompensationJustification(justification);
         boolean modelEscalates = Boolean.TRUE.equals(justification.get("escalate"));
         boolean ruleRequiresApproval = Boolean.TRUE.equals(ruleDecision.get("approval_required"));
 
@@ -176,6 +176,41 @@ public class OutputFormatter {
             log.warn("Model output looked like JSON but did not deserialise: {}", e.getMessage());
             return Collections.emptyMap();
         }
+    }
+
+    private static boolean isValidAbnormalAnalysis(Map<String, Object> analysis) {
+        return isNonBlankText(analysis.get("primary_cause"))
+                && isList(analysis.get("secondary_causes"))
+                && isList(analysis.get("evidence_chain"))
+                && isList(analysis.get("applicable_rules"))
+                && isList(analysis.get("suggested_actions"))
+                && isList(analysis.get("risk_notes"))
+                && isValidConfidence(analysis.get("confidence"));
+    }
+
+    private static boolean isValidCompensationJustification(Map<String, Object> justification) {
+        return isNonBlankText(justification.get("reason"))
+                && isNonBlankText(justification.get("customer_message"))
+                && isList(justification.get("risk_warnings"))
+                && justification.get("escalate") instanceof Boolean
+                && isValidConfidence(justification.get("confidence"));
+    }
+
+    private static boolean isNonBlankText(Object value) {
+        return value instanceof String text && !text.isBlank();
+    }
+
+    private static boolean isList(Object value) {
+        return value instanceof List<?>;
+    }
+
+    private static boolean isValidConfidence(Object value) {
+        if (!(value instanceof String confidence)) {
+            return false;
+        }
+        return "HIGH".equalsIgnoreCase(confidence)
+                || "MEDIUM".equalsIgnoreCase(confidence)
+                || "LOW".equalsIgnoreCase(confidence);
     }
 
     /**

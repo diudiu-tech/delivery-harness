@@ -148,7 +148,7 @@ public class CompensationSuggestionWorkflow {
         long guardrailStart = System.nanoTime();
         boolean amountWithinPolicy = guardrailChecker.checkCompensationAmount(authoritativeAmount);
         boolean languageAcceptable = guardrailChecker.checkForbiddenPhrases(llmResponse.getContent());
-        boolean modelProposedAmount = guardrailChecker.mentionsAmountField(llmResponse.getContent());
+        boolean modelProposedAmount = guardrailChecker.mentionsCompensationAmount(llmResponse.getContent());
         boolean guardrailPassed = amountWithinPolicy && languageAcceptable && !modelProposedAmount;
 
         Map<String, Object> guardrailOutput = new LinkedHashMap<>();

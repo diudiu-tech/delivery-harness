@@ -31,7 +31,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ObserveAndEvalApiTest {
 
     private static final String ANSWER = """
-            {"primary_cause": "商家出餐慢", "applicable_rules": ["ANA-001"], "confidence": "HIGH"}
+            {
+              "primary_cause": "商家出餐慢",
+              "secondary_causes": [],
+              "evidence_chain": [],
+              "applicable_rules": ["ANA-001"],
+              "suggested_actions": [],
+              "risk_notes": [],
+              "confidence": "HIGH"
+            }
             """;
 
     private final ObjectMapper objectMapper = new ObjectMapper();

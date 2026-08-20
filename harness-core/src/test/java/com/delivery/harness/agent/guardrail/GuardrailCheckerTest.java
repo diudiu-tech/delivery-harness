@@ -45,4 +45,12 @@ class GuardrailCheckerTest {
         assertFalse(checker.checkCompensation("{\"suggested_amount\":1e9}"));
         assertTrue(checker.checkCompensation("{\"suggested_amount\":5e1}"));
     }
+
+    @Test
+    void detectsAmountProposalsInFieldsAndProse() {
+        assertTrue(checker.mentionsCompensationAmount("{\"suggested_amount\":20}"));
+        assertTrue(checker.mentionsCompensationAmount("{\"reason\":\"建议赔付20元\"}"));
+        assertTrue(checker.mentionsCompensationAmount("{\"reason\":\"建议赔付￥ 20.50\"}"));
+        assertFalse(checker.mentionsCompensationAmount("{\"reason\":\"订单晚了20分钟\"}"));
+    }
 }

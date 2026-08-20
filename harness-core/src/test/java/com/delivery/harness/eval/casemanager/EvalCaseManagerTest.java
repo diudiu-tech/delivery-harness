@@ -9,6 +9,7 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EvalCaseManagerTest {
 
@@ -53,6 +54,18 @@ class EvalCaseManagerTest {
                         () -> manager.findByIds(Arrays.asList("case-1", " "))
                 )
         );
+    }
+
+    @Test
+    void rejectsUnknownCaseIdsInsteadOfSilentlyShrinkingTheRun() {
+        manager.save(validCase());
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> manager.findByIds(Arrays.asList("case-1", "missing-case"))
+        );
+
+        assertTrue(error.getMessage().contains("missing-case"));
     }
 
     private EvalCase validCase() {

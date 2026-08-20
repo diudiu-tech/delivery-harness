@@ -38,10 +38,14 @@ public class EvalCaseManager {
         if (caseIds == null || caseIds.stream().anyMatch(this::isBlank)) {
             throw new IllegalArgumentException("caseIds must contain only non-blank values");
         }
-        return caseIds.stream()
-                .map(caseStore::get)
-                .filter(Objects::nonNull)
+        List<String> missingIds = caseIds.stream()
+                .filter(caseId -> !caseStore.containsKey(caseId))
+                .distinct()
                 .collect(Collectors.toList());
+        if (!missingIds.isEmpty()) {
+            throw new IllegalArgumentException("Unknown eval case ids: " + String.join(", ", missingIds));
+        }
+        return caseIds.stream().map(caseStore::get).collect(Collectors.toList());
     }
 
     public List<EvalCase> findAll() {

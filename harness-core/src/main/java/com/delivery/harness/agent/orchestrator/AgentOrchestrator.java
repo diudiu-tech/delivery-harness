@@ -64,10 +64,12 @@ public class AgentOrchestrator {
             }
             return HarnessResponse.success(execution, traceId);
         } catch (HarnessException e) {
+            observeFailure(traceId, request, e);
             metricsService.incrementCounter(metricName(request.getScenario(), "dependency_failure"));
             throw e;
         } catch (Exception e) {
             log.error("Agent processing failed: scenario={}, traceId={}", request.getScenario(), traceId, e);
+            observeFailure(traceId, request, e);
             metricsService.incrementCounter(metricName(request.getScenario(), "error"));
             return HarnessResponse.error(500, "Agent processing failed", traceId);
         } finally {
@@ -104,6 +106,23 @@ public class AgentOrchestrator {
             recordStepLatencies(request.getScenario(), execution);
         } catch (RuntimeException e) {
             log.warn("Failed to record trace or metrics for traceId={}: {}", traceId, e.getMessage());
+        }
+    }
+
+    private void observeFailure(String traceId, AgentRequest request, Exception failure) {
+        try {
+            traceService.recordTrace(TraceService.TraceRecord.builder()
+                    .traceId(traceId)
+                    .scenario(request.getScenario())
+                    .input(request.getInput())
+                    .output(Map.of("error_type", failure.getClass().getSimpleName()))
+                    .spans(Collections.emptyList())
+                    .status(HarnessConstants.STATUS_FAILED)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            metricsService.incrementCounter(metricName(request.getScenario(), "failure"));
+        } catch (RuntimeException e) {
+            log.warn("Failed to record failed trace for traceId={}: {}", traceId, e.getMessage());
         }
     }
 

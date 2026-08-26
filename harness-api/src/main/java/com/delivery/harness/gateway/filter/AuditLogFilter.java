@@ -30,15 +30,12 @@ public class AuditLogFilter implements Filter {
         httpResponse.setHeader("X-Trace-Id", traceId);
 
         long startTime = System.currentTimeMillis();
-        String method = httpRequest.getMethod();
-        String uri = httpRequest.getRequestURI();
-
         try {
             chain.doFilter(request, response);
         } finally {
             long duration = System.currentTimeMillis() - startTime;
-            log.info("API: {} {} status={} duration={}ms traceId={}",
-                    method, uri, httpResponse.getStatus(), duration, traceId);
+            log.info("API request: status={} duration={}ms traceId={}",
+                    httpResponse.getStatus(), duration, traceId);
             TraceUtil.clear();
         }
     }

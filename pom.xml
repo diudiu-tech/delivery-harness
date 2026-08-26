@@ -53,7 +53,7 @@
           finding.
 
           Calibrated against a real build, not guessed: harness-core measures
-          0.2557 (395 of 1545 lines), so the floor is 0.25. Headroom is
+          0.3437 (573 of 1667 lines), so the floor is 0.30. Headroom is
           deliberately thin, which is what a ratchet is for.
 
           That number is low, and the reason is a measurement artefact rather
@@ -64,7 +64,7 @@
           read this as "nobody deleted the unit tests", not as a quality
           statement.
         -->
-        <jacoco.core.line.minimum>0.25</jacoco.core.line.minimum>
+        <jacoco.core.line.minimum>0.30</jacoco.core.line.minimum>
     </properties>
 
     <dependencyManagement>

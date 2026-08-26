@@ -7,7 +7,9 @@
     "content": "超时30分钟以上，赔付订单金额的50%，最高不超过20元。需人工审批。",
     "priority": 100,
     "enabled": true,
-    "tags": ["超时", "赔付", "严重"]
+    "tags": ["超时", "赔付", "严重"],
+    "conditions": {"complaint_type": "OVERTIME", "min_overtime_minutes": 31},
+    "actions": {"amount_type": "PERCENT_CAPPED", "rate": 0.50, "cap": 20.00, "method": "原路退款", "confidence": "HIGH", "approval_required": true}
   },
   {
     "ruleId": "COMP-002",
@@ -17,7 +19,9 @@
     "content": "超时15至30分钟，赔付5元优惠券。",
     "priority": 90,
     "enabled": true,
-    "tags": ["超时", "赔付", "一般"]
+    "tags": ["超时", "赔付", "一般"],
+    "conditions": {"complaint_type": "OVERTIME", "min_overtime_minutes": 16, "max_overtime_minutes": 30},
+    "actions": {"amount_type": "FIXED", "amount": 5.00, "method": "发放优惠券", "confidence": "HIGH", "approval_required": false}
   },
   {
     "ruleId": "COMP-003",
@@ -27,7 +31,21 @@
     "content": "超时15分钟以内，致歉并赠送1元红包。",
     "priority": 80,
     "enabled": true,
-    "tags": ["超时", "赔付", "轻微"]
+    "tags": ["超时", "赔付", "轻微"],
+    "conditions": {"complaint_type": "OVERTIME", "min_overtime_minutes": 1, "max_overtime_minutes": 15},
+    "actions": {"amount_type": "FIXED", "amount": 1.00, "method": "红包", "confidence": "MEDIUM", "approval_required": false}
+  },
+  {
+    "ruleId": "COMP-006",
+    "ruleName": "未超时不予赔付",
+    "ruleType": "compensation",
+    "category": "超时赔付",
+    "content": "实际送达未超过承诺时间，不触发超时赔付。",
+    "priority": 70,
+    "enabled": true,
+    "tags": ["超时", "无异常"],
+    "conditions": {"complaint_type": "OVERTIME", "max_overtime_minutes": 0},
+    "actions": {"amount_type": "FIXED", "amount": 0.00, "method": "无需赔付", "confidence": "HIGH", "approval_required": false}
   },
   {
     "ruleId": "COMP-004",
@@ -37,7 +55,9 @@
     "content": "餐品洒漏导致不可食用，全额退款；部分洒漏，赔付订单金额50%。需人工核实照片证据。",
     "priority": 100,
     "enabled": true,
-    "tags": ["餐品", "洒漏", "赔付"]
+    "tags": ["餐品", "洒漏", "赔付"],
+    "conditions": {"complaint_type": "DAMAGED"},
+    "actions": {"amount_type": "DAMAGE_LEVEL", "partial_rate": 0.50, "partial_cap": 20.00, "method": "原路退款", "confidence": "LOW", "approval_required": true}
   },
   {
     "ruleId": "COMP-005",
@@ -47,7 +67,9 @@
     "content": "送错订单，优先补送正确订单，同时赔付5元优惠券。",
     "priority": 95,
     "enabled": true,
-    "tags": ["错单", "赔付"]
+    "tags": ["错单", "赔付"],
+    "conditions": {"complaint_type": "WRONG_ORDER"},
+    "actions": {"amount_type": "FIXED", "amount": 5.00, "method": "补送并发放优惠券", "confidence": "MEDIUM", "approval_required": false}
   },
   {
     "ruleId": "ANA-001",

@@ -108,8 +108,10 @@ public class OutputFormatter {
 
         Map<String, Object> justification = parseModelJson(modelOutput);
         boolean parsed = isValidCompensationJustification(justification);
+        boolean modelOutputAvailable = modelOutput != null && !modelOutput.isBlank();
         boolean modelEscalates = Boolean.TRUE.equals(justification.get("escalate"));
         boolean ruleRequiresApproval = Boolean.TRUE.equals(ruleDecision.get("approval_required"));
+        String confidence = asText(justification.get("confidence"));
 
         List<String> approvalReasons = new ArrayList<>();
         if (ruleRequiresApproval) {
@@ -120,8 +122,14 @@ public class OutputFormatter {
         if (!guardrailPassed) {
             approvalReasons.add("guardrail_failed");
         }
+        if (!modelOutputAvailable) {
+            approvalReasons.add("model_output_unavailable");
+        }
         if (!parsed) {
             approvalReasons.add("model_output_unparseable");
+        }
+        if (parsed && !CONFIDENCE_HIGH.equalsIgnoreCase(confidence)) {
+            approvalReasons.add("model_confidence_below_high");
         }
         if (modelEscalates) {
             approvalReasons.add("model_requested_escalation");
@@ -142,10 +150,12 @@ public class OutputFormatter {
         result.put("suggested_amount", ruleDecision.get("suggested_amount"));
         result.put("suggested_method", ruleDecision.get("suggested_method"));
         result.put("matched_rules", ruleDecision.get("matched_rules"));
+        result.put("policy_source", ruleDecision.get("policy_source"));
         result.put("amount_decided_by", "rule_engine");
 
         result.put("model_justification", parsed ? justification : null);
         result.put("model_raw_output", modelOutput);
+        result.put("model_output_available", modelOutputAvailable);
         result.put("model_output_parsed", parsed);
         result.put("citations", buildCitations(retrievalResult));
         result.put("guardrail_passed", guardrailPassed);

@@ -32,11 +32,12 @@ public final class TextSplitter {
         }
 
         List<String> chunks = new ArrayList<>();
-        int start = 0;
+        long start = 0;
         int step = chunkSize - overlap;
         while (start < text.length()) {
-            int end = Math.min(start + chunkSize, text.length());
-            chunks.add(text.substring(start, end));
+            int startIndex = (int) start;
+            int end = (int) Math.min(start + (long) chunkSize, text.length());
+            chunks.add(text.substring(startIndex, end));
             if (end == text.length()) {
                 break;
             }

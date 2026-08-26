@@ -36,7 +36,7 @@ public class KnowledgeIngestionService {
                 .build();
 
         documentRepository.save(doc);
-        log.info("Document ingested: id={}, title={}", doc.getDocumentId(), doc.getTitle());
+        log.info("Document ingested: id={}", doc.getDocumentId());
 
         List<KnowledgeChunk> chunks = splitAndStore(doc, request.getChunkSize(), request.getChunkOverlap());
         log.info("Document chunked: id={}, chunks={}", doc.getDocumentId(), chunks.size());

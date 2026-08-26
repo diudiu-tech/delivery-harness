@@ -7,6 +7,7 @@ import com.delivery.harness.common.dto.EvalResult;
 import com.delivery.harness.common.dto.EvalRun;
 import com.delivery.harness.common.dto.HarnessResponse;
 import com.delivery.harness.common.dto.WorkflowExecution;
+import com.delivery.harness.common.util.TraceUtil;
 import com.delivery.harness.eval.casemanager.EvalCaseManager;
 import com.delivery.harness.eval.scorer.ExpertAlignmentScorer;
 import com.delivery.harness.eval.scorer.RuleAccuracyScorer;
@@ -59,21 +60,38 @@ public class OfflineEvaluator {
                 .caseIds(caseIds)
                 .totalCases(cases.size())
                 .completedCases(0)
+                .succeededCases(0)
+                .failedCases(0)
                 .status(HarnessConstants.STATUS_RUNNING)
                 .startedAt(LocalDateTime.now())
                 .build();
         runStore.put(runId, run);
 
         List<EvalResult> results = new ArrayList<>();
+        String parentTraceId = TraceUtil.getTraceId();
         for (EvalCase evalCase : cases) {
-            EvalResult result = evaluateCase(evalCase);
-            result.setRunId(runId);
-            results.add(result);
-            run.setCompletedCases(run.getCompletedCases() + 1);
+            TraceUtil.setTraceId(TraceUtil.generateTraceId());
+            try {
+                EvalResult result = evaluateCase(evalCase);
+                result.setRunId(runId);
+                results.add(result);
+                run.setCompletedCases(run.getCompletedCases() + 1);
+                if (result.getErrorMessage() == null || result.getErrorMessage().isBlank()) {
+                    run.setSucceededCases(run.getSucceededCases() + 1);
+                } else {
+                    run.setFailedCases(run.getFailedCases() + 1);
+                }
+            } finally {
+                if (parentTraceId == null) {
+                    TraceUtil.clear();
+                } else {
+                    TraceUtil.setTraceId(parentTraceId);
+                }
+            }
         }
         resultStore.put(runId, results);
 
-        run.setStatus(HarnessConstants.STATUS_SUCCESS);
+        run.setStatus(statusFor(run));
         run.setFinishedAt(LocalDateTime.now());
         log.info("Eval run completed: runId={}, cases={}", runId, cases.size());
         return run;
@@ -89,9 +107,26 @@ public class OfflineEvaluator {
                             .build());
 
             WorkflowExecution execution = response.getData();
+            String traceId = execution == null ? TraceUtil.getTraceId() : execution.getTraceId();
             Map<String, Object> actualOutput = execution != null && execution.getOutput() != null
                     ? execution.getOutput()
                     : Collections.emptyMap();
+
+            if (response.getCode() != 0 || execution == null
+                    || !HarnessConstants.STATUS_SUCCESS.equals(execution.getStatus())) {
+                String errorMessage = response.getMessage();
+                if (errorMessage == null || errorMessage.isBlank()) {
+                    errorMessage = "Workflow returned code " + response.getCode();
+                }
+                return EvalResult.builder()
+                        .resultId(UUID.randomUUID().toString())
+                        .caseId(evalCase.getCaseId())
+                        .traceId(traceId)
+                        .actualOutput(actualOutput)
+                        .errorMessage(errorMessage)
+                        .durationMs(elapsedMs(startTime))
+                        .build();
+            }
 
             OptionalDouble ruleAccuracy = ruleScorer.score(evalCase, actualOutput);
             OptionalDouble expertAlignment = expertScorer.score(evalCase, actualOutput);
@@ -107,6 +142,7 @@ public class OfflineEvaluator {
             return EvalResult.builder()
                     .resultId(UUID.randomUUID().toString())
                     .caseId(evalCase.getCaseId())
+                    .traceId(traceId)
                     .actualOutput(actualOutput)
                     .score(score)
                     .durationMs(elapsedMs(startTime))
@@ -117,7 +153,8 @@ public class OfflineEvaluator {
             return EvalResult.builder()
                     .resultId(UUID.randomUUID().toString())
                     .caseId(evalCase.getCaseId())
-                    .errorMessage(e.getMessage())
+                    .traceId(TraceUtil.getTraceId())
+                    .errorMessage("Evaluation case failed: " + e.getClass().getSimpleName())
                     .durationMs(elapsedMs(startTime))
                     .build();
         }
@@ -154,5 +191,15 @@ public class OfflineEvaluator {
 
     public List<EvalResult> getResults(String runId) {
         return resultStore.getOrDefault(runId, Collections.emptyList());
+    }
+
+    private static String statusFor(EvalRun run) {
+        if (run.getTotalCases() == 0 || run.getFailedCases() != null && run.getFailedCases() == run.getTotalCases()) {
+            return HarnessConstants.STATUS_FAILED;
+        }
+        if (run.getFailedCases() != null && run.getFailedCases() > 0) {
+            return HarnessConstants.STATUS_PARTIAL_SUCCESS;
+        }
+        return HarnessConstants.STATUS_SUCCESS;
     }
 }

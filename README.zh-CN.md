@@ -47,7 +47,7 @@ flowchart LR
 
 | 模块 | 实际职责 |
 | --- | --- |
-| `harness-common` | DTO、异常、JSON/文本工具和 Trace 上下文。无依赖。 |
+| `harness-common` | DTO、异常、JSON/文本工具和 Trace 上下文。无内部依赖。 |
 | `harness-core` | 所有做决策的部分：`agent`（工作流、时间轴、Guardrail、输出格式化）、`tool`（合成业务工具）、`llm`（模型路由与传输）、`knowledge`（播种规则与案例、词法检索）、`eval`（用例、评测运行、评分器）、`observe`（Trace、指标、反馈）。 |
 | `harness-api` | 可执行的 Spring Boot 应用：Controller、校验、异常映射、请求 Trace。 |
 | `llm-inference` | 固定版本的 Ollama 容器定义和冒烟测试脚本 |
@@ -111,6 +111,9 @@ curl --fail-with-body \
   http://localhost:8080/api/v1/analyze/compensation
 ```
 
+对于 `DAMAGED` 投诉，请传入 `"damage_level":"FULL"` 或
+`"damage_level":"PARTIAL"`。缺少证据时，规则会返回 0 元并要求人工复核；赔付金额始终由规则引擎决定，模型不能改写。
+
 所有响应使用统一封装：
 
 ```json
@@ -170,6 +173,7 @@ curl --fail-with-body \
 | `harness.knowledge.seed.enabled` | `true` | 启动时载入合成规则库与案例库 |
 | `harness.eval.seed.enabled` | `true` | 启动时载入初始评测用例 |
 | `harness.observe.max-traces` | `500` | 内存 Trace 环形缓冲容量 |
+| `harness.observe.max-feedback` | `1000` | 内存反馈记录上限 |
 
 安装模型后可运行冒烟测试：
 
@@ -183,7 +187,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-当前共 100 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
+当前共 107 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
 
 ## 安全与数据处理
 
@@ -191,7 +195,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 - 工具数据与地址均为合成示例；公开部署时请勿替换为真实个人数据。
 - 导入的知识内容会影响 Prompt，应将知识导入视为 Prompt Injection 信任边界。
 - 建议式检查器只识别少量短语和金额条件，不是完整策略引擎。
-- 内存存储无持久化，重启后数据清空；Trace 存储有容量上限，其余仍无容量治理。
+- 大多数内存存储仅用于演示，重启后数据清空；Trace 和反馈有明确容量上限，评测与知识库仍需要生命周期治理。
 - 报告漏洞或部署衍生项目之前，请阅读 [SECURITY.md](SECURITY.md)。
 
 ## 已知限制
@@ -200,6 +204,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 - 检索是词法命中率，不是语义检索。中文按空白和标点切分而非分词，召回取决于查询与规则是否共享同一短语（见 [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)）。
 - 规则、文档、案例、评测、反馈、指标和 Trace 均未持久化，重启即丢失。
 - 评测评分器是词法的，定位是发现回归而非认证质量。六条合成用例不足以证明准确率；真实结论需要来自线上流量的标注集。
+- 评测运行中的 `modelVersion` 与 `promptVersion` 当前只是记录用的元数据，不会切换运行时模型或修改工作流 Prompt；比较运行时请通过部署配置固定它们。
 - `needs_human_review` 与 `approval_required` 由 Guardrail 结果、解析是否成功、模型置信度和是否与基线一致推导得出。这是「如实报告」而非「授权」：系统不执行任何付款。
 - Guardrail 会在工作流步骤和最终输出中返回通过/失败，但不能替代人工复核。
 - 当前没有持久化层。此前版本附带过一份从不执行的 PostgreSQL Schema，已删除，以免让读者误以为持久化已存在。
@@ -212,6 +217,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 - 持久化 Trace、指标、反馈和审计事件，并增加保留策略。
 - 引入类型化工作流输出、更强策略执行和敏感信息脱敏。
 - 用真实异常单构建标注评测集，度量 top-1 归因准确率并与确定性基线对比。若模型跑不赢基线，它就不该留在归因链路上。
+- 将评测模型/Prompt 版本绑定到不可变运行时配置，使评测可按记录的版本复现。
 - 度量人工处理时长的前后差值。没有这个数，系统无法证明自己节省了什么。
 - 在当前语料规模下，Embedding 与向量检索**刻意不在** Roadmap 上；重新开启的条件见 [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)。
 

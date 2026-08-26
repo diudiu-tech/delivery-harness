@@ -22,6 +22,7 @@ public final class HarnessConstants {
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_SUCCESS = "SUCCESS";
     public static final String STATUS_FAILED = "FAILED";
+    public static final String STATUS_PARTIAL_SUCCESS = "PARTIAL_SUCCESS";
 
     // Confidence levels
     public static final String CONFIDENCE_HIGH = "HIGH";

@@ -23,7 +23,7 @@ All notable changes to this project will be documented in this file. The format 
 - Maven Wrapper, CI, CodeQL, and Dependabot configuration.
 - Unit and application smoke tests.
 
-### Fixed (this branch)
+### Fixed
 
 - Tool arguments are derived from the order under analysis. ETA coordinates,
   station ID, and the retrieval query were previously hard-coded, so every
@@ -45,6 +45,12 @@ All notable changes to this project will be documented in this file. The format 
 - Evaluation scorers report "not measured" instead of `1.0` when a case
   declares no expectation, read rule IDs from decision fields rather than
   from citations, and match tools by registry name rather than display label.
+- Compensation policy conditions and actions now come from the seeded rule
+  source, including explicit damage evidence and manual-review behavior.
+- Compensation suggestions keep the deterministic payout available during an
+  LLM outage and expose the failed model step instead of returning a 502.
+- Evaluation runs report succeeded/failed cases and per-case trace IDs, while
+  feedback, order IDs, and evaluation result lookups have explicit boundaries.
 
 ### Removed
 
@@ -63,8 +69,6 @@ All notable changes to this project will be documented in this file. The format 
 - Reduced dependencies to components used by the in-memory MVP.
 - Pinned the optional Ollama container and bound it to localhost.
 - Bound the API to localhost by default and aligned the pre-release version at `0.1.0-SNAPSHOT`.
-
-### Fixed
 
 - Rejected invalid text-chunk overlap values that could prevent loop progress.
 - Reused request trace IDs throughout workflow execution.

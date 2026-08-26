@@ -8,6 +8,7 @@ import com.delivery.harness.common.dto.OrderInfo;
 import com.delivery.harness.common.dto.ToolResult;
 import com.delivery.harness.common.dto.WorkflowExecution;
 import com.delivery.harness.common.exception.ToolException;
+import com.delivery.harness.common.exception.LlmException;
 import com.delivery.harness.common.util.JsonUtil;
 import com.delivery.harness.knowledge.retrieval.RetrievalService;
 import com.delivery.harness.llm.gateway.LlmChatRequest;
@@ -74,6 +75,7 @@ public class CompensationSuggestionWorkflow {
     private Map<String, Object> handle(Map<String, Object> input, WorkflowExecution execution) {
         String orderId = String.valueOf(input.get("order_id"));
         String complaintType = String.valueOf(input.getOrDefault("complaint_type", "OVERTIME"));
+        String damageLevel = input.get("damage_level") == null ? null : String.valueOf(input.get("damage_level"));
         StepRecorder steps = new StepRecorder(execution);
 
         // Step 1: the order.
@@ -99,6 +101,9 @@ public class CompensationSuggestionWorkflow {
         ruleParams.put("complaint_type", complaintType);
         ruleParams.put("overtime_minutes", timeline.overtimeMinutes());
         ruleParams.put("order_amount", order.getOrderAmount());
+        if (damageLevel != null && !damageLevel.isBlank()) {
+            ruleParams.put("damage_level", damageLevel);
+        }
         ToolResult ruleResult = invokeTool(steps, HarnessConstants.TOOL_COMPENSATION_RULE,
                 ruleParams, "匹配赔付规则");
         if (!Boolean.TRUE.equals(ruleResult.getSuccess())) {
@@ -129,19 +134,35 @@ public class CompensationSuggestionWorkflow {
         // Step 5: the model explains; it does not decide.
         String prompt = buildJustificationPrompt(order, timeline, complaintType, decision, retrievalResult);
         long llmStart = System.nanoTime();
-        LlmChatResponse llmResponse = llmGateway.chat(LlmChatRequest.builder()
-                .scenario(HarnessConstants.SCENARIO_COMPENSATION)
-                .messages(Arrays.asList(LlmMessage.system(SYSTEM_PROMPT), LlmMessage.user(prompt)))
-                .build());
+        LlmChatResponse llmResponse;
+        try {
+            llmResponse = llmGateway.chat(LlmChatRequest.builder()
+                    .scenario(HarnessConstants.SCENARIO_COMPENSATION)
+                    .messages(Arrays.asList(LlmMessage.system(SYSTEM_PROMPT), LlmMessage.user(prompt)))
+                    .build());
+        } catch (LlmException e) {
+            // The rule engine remains authoritative when the model is down.
+            // Return the deterministic payout with an explicit failed model
+            // step so callers can distinguish degraded mode from a clean run.
+            log.warn("Compensation justification unavailable; continuing with rule decision: model={}, errorType={}",
+                    e.getModel(), e.getClass().getSimpleName());
+            llmResponse = LlmChatResponse.builder()
+                    .model(e.getModel())
+                    .success(false)
+                    .errorMessage("LLM unavailable")
+                    .build();
+        }
         Map<String, Object> llmOutput = new LinkedHashMap<>();
         llmOutput.put("model", llmResponse.getModel());
         llmOutput.put("prompt_chars", prompt.length());
         llmOutput.put("response_chars", llmResponse.getContent() == null ? 0 : llmResponse.getContent().length());
+        llmOutput.put("error", llmResponse.getErrorMessage());
         steps.record(HarnessConstants.STEP_LLM_CALL, "LLM生成赔付说明",
+                null,
                 Boolean.TRUE.equals(llmResponse.getSuccess())
                         ? HarnessConstants.STATUS_SUCCESS : HarnessConstants.STATUS_FAILED,
                 Collections.singletonMap("scenario", HarnessConstants.SCENARIO_COMPENSATION), llmOutput,
-                StepRecorder.elapsedMs(llmStart));
+                StepRecorder.elapsedMs(llmStart), llmResponse.getErrorMessage());
 
         // Step 6: the guardrail checks the number that will actually be paid,
         // plus the language the model produced. Both must hold.

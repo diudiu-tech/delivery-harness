@@ -47,7 +47,7 @@ All workflow steps run synchronously in the gateway process. Apart from the conf
 
 | Module | Responsibility |
 | --- | --- |
-| `harness-common` | DTOs, exceptions, JSON/text helpers, and trace context. No dependencies. |
+| `harness-common` | DTOs, exceptions, JSON/text helpers, and trace context. No internal dependencies. |
 | `harness-core` | Everything that decides something: `agent` (workflows, timeline, guardrails, formatting), `tool` (synthetic business tools), `llm` (model routing and transport), `knowledge` (seeded rules and cases, lexical retrieval), `eval` (cases, runs, scorers), `observe` (traces, metrics, feedback). |
 | `harness-api` | Executable Spring Boot application: controllers, validation, exception mapping, request tracing. |
 | `llm-inference` | Pinned Ollama container definition and smoke-test script. |
@@ -109,6 +109,10 @@ curl --fail-with-body \
   http://localhost:8080/api/v1/analyze/compensation
 ```
 
+For `DAMAGED` complaints, pass `"damage_level":"FULL"` or
+`"damage_level":"PARTIAL"`. Without evidence, the policy returns zero and
+requires manual review; the rule engine, not the model, remains authoritative.
+
 Every response uses an envelope similar to:
 
 ```json
@@ -168,6 +172,7 @@ Additional Spring properties, settable in `application.yml` or as `--property=va
 | `harness.knowledge.seed.enabled` | `true` | Load the synthetic rule and case base at startup |
 | `harness.eval.seed.enabled` | `true` | Load the starter evaluation cases at startup |
 | `harness.observe.max-traces` | `500` | Size of the in-memory trace ring |
+| `harness.observe.max-feedback` | `1000` | Maximum in-memory feedback records |
 
 Run the model smoke test after installing the configured model:
 
@@ -181,7 +186,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-The suite contains 100 tests. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
+The suite contains 107 tests. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
 
 ## Security and data handling
 
@@ -189,7 +194,7 @@ The suite contains 100 tests. Both workflows are covered end to end against a st
 - Tool data and addresses are synthetic examples; do not replace them with real personal data in a public deployment.
 - Ingested documents can influence prompts. Treat knowledge ingestion as a prompt-injection trust boundary.
 - The advisory checker detects a small set of phrases and amount conditions; it is not a policy engine.
-- In-memory stores are unbounded demonstration components and are cleared on restart.
+- Most in-memory stores are demonstration components and are cleared on restart; traces and feedback have explicit capacity limits, while evaluation and knowledge stores still need lifecycle governance.
 - Review [SECURITY.md](SECURITY.md) before reporting a vulnerability or deploying a derivative.
 
 ## Known limitations
@@ -198,6 +203,7 @@ The suite contains 100 tests. Both workflows are covered end to end against a st
 - Retrieval is lexical term overlap, not semantic search. CJK text is split on whitespace and punctuation rather than segmented, so recall depends on the query and the rule sharing a phrase ([ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)).
 - Rules, documents, cases, evaluations, feedback, metrics, and traces are not durable and are lost on restart.
 - The evaluation scorers are lexical and are calibrated to catch regressions, not to certify quality. Six synthetic cases cannot establish accuracy; a real claim needs a labelled set drawn from production traffic.
+- `modelVersion` and `promptVersion` on an evaluation run are recorded metadata labels; they do not yet select a model or mutate the workflow prompt. Pin those inputs through deployment configuration when comparing runs.
 - `needs_human_review` and `approval_required` are derived from guardrail outcome, parse success, model confidence and baseline agreement. This is reporting, not authority: nothing here executes a payment.
 - Guardrails report pass/fail in workflow steps and the final output, but do not replace human review.
 - There is no persistence layer. A prior revision shipped an unexecuted PostgreSQL schema; it was removed rather than left to imply otherwise.
@@ -210,6 +216,7 @@ The suite contains 100 tests. Both workflows are covered end to end against a st
 - Persist traces, metrics, feedback, and audit events with retention limits.
 - Introduce typed workflow outputs, stronger policy enforcement, and redaction.
 - Build a labelled evaluation set from real abnormal orders and measure top-1 attribution accuracy against the deterministic baseline. If the model does not beat that baseline, the model is not earning its place in the attribution path.
+- Bind evaluation model/prompt versions to immutable runtime configuration so a run can be reproduced from its recorded metadata.
 - Measure reviewer handling time before and after. Without it, the system cannot demonstrate that it saves anything.
 - Embedding generation and vector retrieval are deliberately **not** on this roadmap at the current corpus size; see [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md) for the conditions that would reopen it.
 

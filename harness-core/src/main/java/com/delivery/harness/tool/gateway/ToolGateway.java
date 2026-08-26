@@ -39,9 +39,10 @@ public class ToolGateway {
             ToolResult result = executor.execute(parameters);
             long duration = System.currentTimeMillis() - startTime;
             result.setDurationMs(duration);
+            boolean succeeded = Boolean.TRUE.equals(result.getSuccess());
 
-            logInvocation(invocationId, toolName, parameters, duration, true, null);
-            log.info("Tool invoked: name={}, duration={}ms, success=true", toolName, duration);
+            logInvocation(invocationId, toolName, parameters, duration, succeeded, result.getErrorMessage());
+            log.info("Tool invoked: name={}, duration={}ms, success={}", toolName, duration, succeeded);
             return result;
 
         } catch (Exception e) {

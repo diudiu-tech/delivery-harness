@@ -21,6 +21,8 @@ public class EvalRun {
     private String status;
     private Integer totalCases;
     private Integer completedCases;
+    private Integer succeededCases;
+    private Integer failedCases;
     private LocalDateTime startedAt;
     private LocalDateTime finishedAt;
 }

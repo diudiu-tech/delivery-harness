@@ -134,6 +134,39 @@ class CompensationSuggestionApiTest {
     }
 
     @Test
+    void keepsTheRuleDecisionWhenTheModelIsUnavailable() throws Exception {
+        stubLlmClient.failWith("connection refused");
+
+        compensate("TEST003", "OVERTIME")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.suggested_amount").value(20.00))
+                .andExpect(jsonPath("$.data.output.model_output_available").value(false))
+                .andExpect(jsonPath("$.data.output.approval_reasons"
+                        + "[?(@ == 'model_output_unavailable')]").isNotEmpty())
+                .andExpect(jsonPath("$.data.steps[?(@.stepType == 'llm_call' "
+                        + "&& @.status == 'FAILED' && @.errorMessage != null)]").isNotEmpty());
+    }
+
+    @Test
+    void requiresDamageEvidenceAndUsesTheConfiguredDamagePolicy() throws Exception {
+        compensateDamage("TEST003", "DAMAGED", null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.matched_rules[0].rule_id").value("COMP-004"))
+                .andExpect(jsonPath("$.data.output.suggested_amount").value(0.0))
+                .andExpect(jsonPath("$.data.output.approval_required").value(true));
+
+        compensateDamage("TEST003", "DAMAGED", "PARTIAL")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.suggested_amount").value(20.00))
+                .andExpect(jsonPath("$.data.output.approval_required").value(true));
+
+        compensateDamage("TEST003", "DAMAGED", "FULL")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.suggested_amount").value(64.00))
+                .andExpect(jsonPath("$.data.output.approval_required").value(true));
+    }
+
+    @Test
     void rejectsAnUnknownComplaintType() throws Exception {
         mockMvc.perform(post("/api/v1/analyze/compensation")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -146,5 +179,13 @@ class CompensationSuggestionApiTest {
         return mockMvc.perform(post("/api/v1/analyze/compensation")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"order_id\":\"" + orderId + "\",\"complaint_type\":\"" + complaintType + "\"}"));
+    }
+
+    private ResultActions compensateDamage(String orderId, String complaintType, String damageLevel) throws Exception {
+        String suffix = damageLevel == null ? "" : ",\"damage_level\":\"" + damageLevel + "\"";
+        return mockMvc.perform(post("/api/v1/analyze/compensation")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"order_id\":\"" + orderId + "\",\"complaint_type\":\""
+                        + complaintType + "\"" + suffix + "}"));
     }
 }

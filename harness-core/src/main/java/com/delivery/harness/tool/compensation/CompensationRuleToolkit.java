@@ -2,6 +2,8 @@ package com.delivery.harness.tool.compensation;
 
 import com.delivery.harness.common.dto.ToolDefinition;
 import com.delivery.harness.common.dto.ToolResult;
+import com.delivery.harness.common.dto.RuleInfo;
+import com.delivery.harness.knowledge.rule.RuleBaseService;
 import com.delivery.harness.tool.gateway.ToolGateway;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -10,13 +12,14 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.util.Optional;
 
 import static com.delivery.harness.common.config.HarnessConstants.TOOL_COMPENSATION_RULE;
 
@@ -34,18 +37,10 @@ import static com.delivery.harness.common.config.HarnessConstants.TOOL_COMPENSAT
 @RequiredArgsConstructor
 public class CompensationRuleToolkit {
 
-    /** Percentage of order value paid out on the top overtime tier. */
-    private static final BigDecimal SEVERE_OVERTIME_RATE = new BigDecimal("0.50");
-
-    /** Hard ceiling on a percentage-based payout, in yuan. */
-    private static final BigDecimal SEVERE_OVERTIME_CAP = new BigDecimal("20.00");
-
-    private static final BigDecimal MODERATE_OVERTIME_COUPON = new BigDecimal("5.00");
-    private static final BigDecimal MINOR_OVERTIME_REDPACKET = new BigDecimal("1.00");
-    private static final BigDecimal WRONG_ORDER_COUPON = new BigDecimal("5.00");
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     private final ToolGateway toolGateway;
+    private final RuleBaseService ruleBaseService;
 
     /** Payouts at or above this value require a human approver. */
     @Value("${harness.compensation.approval-threshold:10.0}")
@@ -58,10 +53,12 @@ public class CompensationRuleToolkit {
 
     private ToolResult matchRules(Map<String, Object> params) {
         String complaintType = asString(params.get("complaint_type"), "OVERTIME");
+        complaintType = complaintType.toUpperCase(Locale.ROOT);
         int overtimeMinutes = Math.max(0, asInt(params.get("overtime_minutes"), 0));
-        BigDecimal orderAmount = asDecimal(params.get("order_amount"), ZERO);
+        BigDecimal orderAmount = asDecimal(params.get("order_amount"), ZERO).max(ZERO);
+        String damageLevel = asString(params.get("damage_level"), "").toUpperCase(Locale.ROOT);
 
-        Decision decision = decide(complaintType, overtimeMinutes, orderAmount);
+        Decision decision = decide(complaintType, overtimeMinutes, orderAmount, damageLevel);
         boolean approvalRequired = decision.approvalRequired()
                 || decision.amount().compareTo(approvalThreshold) >= 0;
 
@@ -69,6 +66,7 @@ public class CompensationRuleToolkit {
         result.put("complaint_type", complaintType);
         result.put("overtime_minutes", overtimeMinutes);
         result.put("order_amount", orderAmount);
+        result.put("damage_level", damageLevel.isBlank() ? null : damageLevel);
         result.put("matched_rules", decision.rules());
         result.put("should_compensate", decision.amount().compareTo(ZERO) > 0);
         result.put("suggested_amount", decision.amount());
@@ -77,43 +75,57 @@ public class CompensationRuleToolkit {
         result.put("approval_required", approvalRequired);
         result.put("approval_reason", approvalReason(decision, approvalRequired));
         result.put("decided_by", "rule_engine");
+        result.put("policy_source", "rule_base");
         return ToolResult.builder().toolName(TOOL_COMPENSATION_RULE).success(true).data(result).build();
     }
 
-    private Decision decide(String complaintType, int overtimeMinutes, BigDecimal orderAmount) {
-        switch (complaintType) {
-            case "OVERTIME":
-                if (overtimeMinutes > 30) {
-                    return new Decision(
-                            rule("COMP-001", "严重超时赔付", "超时30分钟以上，赔付订单金额的50%，最高不超过20元"),
-                            percentageOf(orderAmount, SEVERE_OVERTIME_RATE, SEVERE_OVERTIME_CAP),
-                            "原路退款", "HIGH", false);
-                }
-                if (overtimeMinutes > 15) {
-                    return new Decision(
-                            rule("COMP-002", "一般超时赔付", "超时15-30分钟，赔付5元优惠券"),
-                            MODERATE_OVERTIME_COUPON, "发放优惠券", "HIGH", false);
-                }
-                if (overtimeMinutes > 0) {
-                    return new Decision(
-                            rule("COMP-003", "轻微超时赔付", "超时15分钟以内，致歉并赠送1元红包"),
-                            MINOR_OVERTIME_REDPACKET, "红包", "MEDIUM", false);
-                }
-                return new Decision(
-                        Collections.emptyList(), ZERO, "无需赔付", "HIGH", false);
-            case "DAMAGED":
-                return new Decision(
-                        rule("COMP-004", "餐品洒漏赔付", "餐品洒漏导致不可食用，全额退款；部分洒漏，赔付50%"),
-                        percentageOf(orderAmount, SEVERE_OVERTIME_RATE, SEVERE_OVERTIME_CAP),
-                        "原路退款", "LOW", true);
-            case "WRONG_ORDER":
-                return new Decision(
-                        rule("COMP-005", "错单赔付", "送错订单，优先补送正确订单，同时赔付5元优惠券"),
-                        WRONG_ORDER_COUPON, "补送并发放优惠券", "MEDIUM", false);
-            default:
-                return new Decision(
-                        Collections.emptyList(), ZERO, "需人工判断", "LOW", true);
+    private Decision decide(String complaintType, int overtimeMinutes, BigDecimal orderAmount, String damageLevel) {
+        Optional<RuleInfo> matched = ruleBaseService.findByType("compensation").stream()
+                .filter(rule -> matches(rule, complaintType, overtimeMinutes))
+                .findFirst();
+        if (matched.isEmpty()) {
+            return new Decision(Collections.emptyList(), ZERO, "需人工判断", "LOW", true);
         }
+
+        RuleInfo rule = matched.get();
+        Map<String, Object> actions = rule.getActions() == null ? Collections.emptyMap() : rule.getActions();
+        String amountType = asString(actions.get("amount_type"), "MANUAL");
+        BigDecimal amount = switch (amountType) {
+            case "FIXED" -> asDecimal(actions.get("amount"), ZERO);
+            case "PERCENT_CAPPED" -> percentageOf(orderAmount, asDecimal(actions.get("rate"), ZERO),
+                    asDecimal(actions.get("cap"), orderAmount));
+            case "DAMAGE_LEVEL" -> damageAmount(orderAmount, damageLevel, actions);
+            default -> ZERO;
+        };
+        boolean manualDamageReview = "DAMAGE_LEVEL".equals(amountType) && !("FULL".equals(damageLevel) || "PARTIAL".equals(damageLevel));
+        return new Decision(ruleMetadata(rule), amount,
+                manualDamageReview ? "需人工判断" : asString(actions.get("method"), "需人工判断"),
+                asString(actions.get("confidence"), "LOW"),
+                manualDamageReview || Boolean.TRUE.equals(actions.get("approval_required")));
+    }
+
+    private static boolean matches(RuleInfo rule, String complaintType, int overtimeMinutes) {
+        Map<String, Object> conditions = rule.getConditions();
+        if (conditions == null) {
+            return false;
+        }
+        if (!complaintType.equalsIgnoreCase(asString(conditions.get("complaint_type"), ""))) {
+            return false;
+        }
+        Integer min = asInteger(conditions.get("min_overtime_minutes"));
+        Integer max = asInteger(conditions.get("max_overtime_minutes"));
+        return (min == null || overtimeMinutes >= min) && (max == null || overtimeMinutes <= max);
+    }
+
+    private static BigDecimal damageAmount(BigDecimal orderAmount, String damageLevel, Map<String, Object> actions) {
+        if ("FULL".equals(damageLevel)) {
+            return orderAmount;
+        }
+        if ("PARTIAL".equals(damageLevel)) {
+            return percentageOf(orderAmount, asDecimal(actions.get("partial_rate"), ZERO),
+                    asDecimal(actions.get("partial_cap"), orderAmount));
+        }
+        return ZERO;
     }
 
     private static BigDecimal percentageOf(BigDecimal orderAmount, BigDecimal rate, BigDecimal cap) {
@@ -131,14 +143,14 @@ public class CompensationRuleToolkit {
         return "赔付金额达到 " + approvalThreshold.toPlainString() + " 元审批线";
     }
 
-    private static List<Map<String, Object>> rule(String ruleId, String ruleName, String content) {
+    private static List<Map<String, Object>> ruleMetadata(RuleInfo rule) {
         Map<String, Object> matched = new LinkedHashMap<>();
-        matched.put("rule_id", ruleId);
-        matched.put("rule_name", ruleName);
-        matched.put("content", content);
-        List<Map<String, Object>> rules = new ArrayList<>(1);
-        rules.add(matched);
-        return rules;
+        matched.put("rule_id", rule.getRuleId());
+        matched.put("rule_name", rule.getRuleName());
+        matched.put("content", rule.getContent());
+        matched.put("category", rule.getCategory());
+        matched.put("priority", rule.getPriority());
+        return Collections.singletonList(matched);
     }
 
     private static String asString(Object value, String fallback) {
@@ -157,6 +169,20 @@ public class CompensationRuleToolkit {
             }
         }
         return fallback;
+    }
+
+    private static Integer asInteger(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return Integer.parseInt(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static BigDecimal asDecimal(Object value, BigDecimal fallback) {
@@ -192,6 +218,9 @@ public class CompensationRuleToolkit {
                 .name("overtime_minutes").type("integer").description("实际超时分钟数").required(false).build());
         parameters.put("order_amount", ToolDefinition.ParameterDef.builder()
                 .name("order_amount").type("number").description("订单金额，用于按比例赔付").required(false).build());
+        parameters.put("damage_level", ToolDefinition.ParameterDef.builder()
+                .name("damage_level").type("string").description("餐品损坏程度，FULL 或 PARTIAL").required(false)
+                .enumValues(Arrays.asList("FULL", "PARTIAL")).build());
 
         return ToolDefinition.builder()
                 .toolName(TOOL_COMPENSATION_RULE)

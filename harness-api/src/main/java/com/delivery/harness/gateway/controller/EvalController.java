@@ -55,8 +55,12 @@ public class EvalController {
     }
 
     @GetMapping("/run/{runId}/results")
-    public HarnessResponse<List<EvalResult>> getResults(@PathVariable String runId) {
-        return HarnessResponse.success(evaluator.getResults(runId));
+    public ResponseEntity<HarnessResponse<List<EvalResult>>> getResults(@PathVariable String runId) {
+        if (evaluator.getRun(runId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(HarnessResponse.error(404, "Run not found"));
+        }
+        return ResponseEntity.ok(HarnessResponse.success(evaluator.getResults(runId)));
     }
 
     @Data
@@ -66,7 +70,9 @@ public class EvalController {
         @NotEmpty
         @Size(max = 100)
         private List<@NotBlank String> caseIds;
+        @Size(max = 128)
         private String modelVersion;
+        @Size(max = 128)
         private String promptVersion;
     }
 }

@@ -108,6 +108,13 @@ class HarnessApplicationTest {
     }
 
     @Test
+    void returnsHttpNotFoundForMissingEvalResults() throws Exception {
+        mockMvc.perform(get("/api/v1/eval/run/missing-run/results"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404));
+    }
+
+    @Test
     void returnsHttpNotFoundForMissingTrace() throws Exception {
         mockMvc.perform(get("/api/v1/observe/trace/missing-trace"))
                 .andExpect(status().isNotFound())

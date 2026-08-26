@@ -36,6 +36,12 @@ for every request. The percentage rule was never actually computed.
 
 The rule engine decides the amount. The model never proposes one.
 
+The rule engine reads enabled compensation conditions and actions from the
+loaded rule base (seeded from `harness-core/src/main/resources/seed/rules.json`
+by default). Java code performs only the deterministic calculation described
+by those actions, so policy text, thresholds, methods, and approval flags do
+not drift into a second hard-coded table.
+
 The model is asked only for what a lookup table cannot supply:
 
 - a justification a reviewer can read, citing specific evidence fields
@@ -83,4 +89,5 @@ superseded rather than quietly ignored.
 `CompensationSuggestionApiTest` asserts the response carries the rule engine's
 amount even when the model returns a contradicting one, that the severe tier is
 capped, and that a model-proposed amount fails the guardrail while leaving the
-payout untouched.
+payout untouched. It also covers model outage fallback and the explicit full,
+partial, or missing evidence paths for damaged-food complaints.

@@ -17,7 +17,7 @@ public class EvalCaseManager {
     public void save(EvalCase evalCase) {
         validateCase(evalCase);
         caseStore.put(evalCase.getCaseId(), evalCase);
-        log.info("EvalCase saved: id={}, scenario={}", evalCase.getCaseId(), evalCase.getScenario());
+        log.info("EvalCase saved");
     }
 
     public void saveAll(List<EvalCase> cases) {

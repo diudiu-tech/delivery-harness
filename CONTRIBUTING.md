@@ -73,8 +73,8 @@ configuration surface are not worth carrying to enforce them.
 lands above it. Never lower it to make a build pass — if coverage dropped, that
 is the finding.
 
-The current floor is `0.25`, calibrated against a measured `0.2557` on
-`harness-core`. That figure is low mainly because the end-to-end tests live in
+The current floor is `0.30`, calibrated against the current measured line
+coverage on `harness-core`. That figure is low mainly because the end-to-end tests live in
 `harness-api`, so the `harness-core` lines they cover are not attributed to
 this module; `jacoco:report-aggregate` is the fix. Read the number as "nobody
 deleted the unit tests", not as a statement about quality.

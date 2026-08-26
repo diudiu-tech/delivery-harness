@@ -26,15 +26,15 @@ public class RuleBaseService {
     public List<RuleInfo> findByType(String ruleType) {
         return ruleStore.values().stream()
                 .filter(r -> ruleType.equals(r.getRuleType()))
-                .filter(RuleInfo::getEnabled)
-                .sorted(Comparator.comparingInt(RuleInfo::getPriority).reversed())
+                .filter(r -> !Boolean.FALSE.equals(r.getEnabled()))
+                .sorted(Comparator.<RuleInfo>comparingInt(r -> r.getPriority() == null ? 0 : r.getPriority()).reversed())
                 .collect(Collectors.toList());
     }
 
     public List<RuleInfo> findByCategory(String category) {
         return ruleStore.values().stream()
                 .filter(r -> category.equals(r.getCategory()))
-                .filter(RuleInfo::getEnabled)
+                .filter(r -> !Boolean.FALSE.equals(r.getEnabled()))
                 .collect(Collectors.toList());
     }
 

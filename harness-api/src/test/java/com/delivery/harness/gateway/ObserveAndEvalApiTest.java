@@ -122,6 +122,9 @@ class ObserveAndEvalApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalCases").value(1))
                 .andExpect(jsonPath("$.data.completedCases").value(1))
+                .andExpect(jsonPath("$.data.succeededCases").value(1))
+                .andExpect(jsonPath("$.data.failedCases").value(0))
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
                 .andReturn();
 
         String runId = objectMapper.readTree(run.getResponse().getContentAsString())
@@ -132,7 +135,36 @@ class ObserveAndEvalApiTest {
                 .andExpect(jsonPath("$.data[0].caseId").value("EC-001"))
                 .andExpect(jsonPath("$.data[0].score.ruleAccuracy").value(1.0))
                 .andExpect(jsonPath("$.data[0].score.expertAlignment").value(1.0))
-                .andExpect(jsonPath("$.data[0].score.toolExecutionAccuracy").value(1.0));
+                .andExpect(jsonPath("$.data[0].score.toolExecutionAccuracy").value(1.0))
+                .andExpect(jsonPath("$.data[0].traceId").isNotEmpty());
+    }
+
+    @Test
+    void reportsFailedEvaluationCasesAndStillRecordsTheirTrace() throws Exception {
+        stubLlmClient.failWith("connection refused");
+
+        MvcResult run = mockMvc.perform(post("/api/v1/eval/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caseIds\":[\"EC-001\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("FAILED"))
+                .andExpect(jsonPath("$.data.succeededCases").value(0))
+                .andExpect(jsonPath("$.data.failedCases").value(1))
+                .andReturn();
+
+        String runId = objectMapper.readTree(run.getResponse().getContentAsString())
+                .path("data").path("runId").asText();
+        MvcResult results = mockMvc.perform(get("/api/v1/eval/run/{runId}/results", runId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].errorMessage").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].traceId").isNotEmpty())
+                .andReturn();
+
+        String traceId = objectMapper.readTree(results.getResponse().getContentAsString())
+                .path("data").get(0).path("traceId").asText();
+        mockMvc.perform(get("/api/v1/observe/trace/{traceId}", traceId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("FAILED"));
     }
 
     @Test

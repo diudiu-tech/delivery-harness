@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -42,6 +43,9 @@ public class AnalyzeController {
         Map<String, Object> input = new HashMap<>();
         input.put("order_id", request.getOrderId());
         input.put("complaint_type", request.getComplaintType());
+        if (request.getDamageLevel() != null) {
+            input.put("damage_level", request.getDamageLevel());
+        }
         HarnessResponse<WorkflowExecution> response = orchestrator.process(AgentOrchestrator.AgentRequest.builder()
                 .scenario(HarnessConstants.SCENARIO_COMPENSATION)
                 .input(input)
@@ -60,6 +64,8 @@ public class AnalyzeController {
     @AllArgsConstructor
     public static class AbnormalOrderRequest {
         @NotBlank
+        @Size(max = 64)
+        @Pattern(regexp = "[A-Za-z0-9._:-]+", message = "order_id contains unsupported characters")
         @JsonProperty("order_id")
         private String orderId;
     }
@@ -69,6 +75,8 @@ public class AnalyzeController {
     @AllArgsConstructor
     public static class CompensationRequest {
         @NotBlank
+        @Size(max = 64)
+        @Pattern(regexp = "[A-Za-z0-9._:-]+", message = "order_id contains unsupported characters")
         @JsonProperty("order_id")
         private String orderId;
 
@@ -76,5 +84,9 @@ public class AnalyzeController {
         @Pattern(regexp = "OVERTIME|WRONG_ORDER|DAMAGED|MISSING_ITEM")
         @JsonProperty("complaint_type")
         private String complaintType = "OVERTIME";
+
+        @Pattern(regexp = "FULL|PARTIAL")
+        @JsonProperty("damage_level")
+        private String damageLevel;
     }
 }

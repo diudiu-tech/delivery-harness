@@ -121,15 +121,16 @@ public class RetrievalService {
 
         items.sort(Comparator.comparingDouble(RetrievalItem::getScore).reversed()
                 .thenComparing(RetrievalItem::getSourceId, Comparator.nullsLast(Comparator.naturalOrder())));
+        int totalFound = items.size();
         List<RetrievalItem> top = items.subList(0, Math.min(topK, items.size()));
 
-        log.debug("Retrieval: query='{}', terms={}, candidates={}, returned={}",
-                request.getQuery(), terms.size(), items.size(), top.size());
+        log.debug("Retrieval: terms={}, candidates={}, returned={}",
+                terms.size(), items.size(), top.size());
 
         return RetrievalResult.builder()
                 .query(request.getQuery())
                 .items(new ArrayList<>(top))
-                .totalFound(top.size())
+                .totalFound(totalFound)
                 .build();
     }
 

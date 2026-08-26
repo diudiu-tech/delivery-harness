@@ -6,6 +6,7 @@ import com.delivery.harness.observe.metrics.MetricsService;
 import com.delivery.harness.observe.trace.TraceService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -46,7 +47,7 @@ public class ObserveController {
 
     @PostMapping("/feedback")
     public HarnessResponse<FeedbackCollector.FeedbackRecord> submitFeedback(
-            @RequestBody FeedbackCollector.FeedbackRequest request) {
+            @Valid @RequestBody FeedbackCollector.FeedbackRequest request) {
         return HarnessResponse.success(feedbackCollector.submit(request));
     }
 

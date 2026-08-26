@@ -33,11 +33,17 @@ public class EvalCase {
     private String description;
 
     @NotNull
+    @Size(max = 50)
     private Map<String, Object> input;
+    @Size(max = 50)
     private Map<String, Object> expectedOutput;
+    @Size(max = 100)
     private List<String> expectedRuleIds;
+    @Size(max = 100)
     private List<String> expectedToolCalls;
+    @Size(max = 10_000)
     private String expertAnswer;
+    @Size(max = 20)
     private List<String> tags;
     private LocalDateTime createdAt;
 }

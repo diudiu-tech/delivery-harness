@@ -70,7 +70,7 @@ move of roughly sixty files reviewable: the diff is renames plus four POMs.
   neighbours. If the boundary starts to matter, ArchUnit tests enforce package
   dependency rules inside one module at a fraction of the cost of splitting the
   build again.
-- The artifact renames from `harness-gateway-0.1.0-SNAPSHOT.jar` to
+- The artifact name changed from the former gateway artifact to
   `harness-api.jar`. Nothing external consumes it; both READMEs are updated.
 
 **Why `tool` is inside `core` rather than a separate `harness-adapters`**

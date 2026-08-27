@@ -6,7 +6,7 @@
 
     <groupId>com.delivery.harness</groupId>
     <artifactId>delivery-harness</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
     <packaging>pom</packaging>
 
     <name>Delivery Harness Engineering Platform</name>
@@ -53,7 +53,7 @@
           finding.
 
           Calibrated against a real build, not guessed: harness-core measures
-          0.3437 (573 of 1667 lines), so the floor is 0.30. Headroom is
+          0.3528 (598 of 1695 lines), so the floor is 0.30. Headroom is
           deliberately thin, which is what a ratchet is for.
 
           That number is low, and the reason is a measurement artefact rather

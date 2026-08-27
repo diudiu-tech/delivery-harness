@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Verify release tag and project version
+        shell: bash
+        run: |
+          expected_version="${GITHUB_REF_NAME#v}"
+          project_version="$(sed -n 's/.*<version>\([^<]*\)<\/version>.*/\1/p' pom.xml | head -1)"
+          test "$project_version" = "$expected_version"
+          ! grep -R --include='pom.xml' -q -- '-SNAPSHOT' .
+
+      - name: Verify formatting and shell syntax
+        run: |
+          bash -n llm-inference/smoke-test.sh
+          bash -n tools/check-format.sh
+          ./tools/check-format.sh
+
+      - name: Build and test
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p release-assets
+          cp harness-api/target/harness-api.jar "release-assets/delivery-harness-${version}.jar"
+          sha256sum "release-assets/delivery-harness-${version}.jar" \
+            > "release-assets/delivery-harness-${version}.jar.sha256"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes_file=".github/release-notes/${version}.md"
+          if [[ -f "$notes_file" ]]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Delivery Harness $GITHUB_REF_NAME" \
+              --notes-file "$notes_file" \
+              release-assets/*
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Delivery Harness $GITHUB_REF_NAME" \
+              --generate-notes \
+              release-assets/*
+          fi

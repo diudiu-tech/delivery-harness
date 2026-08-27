@@ -72,6 +72,24 @@ class CompensationSuggestionApiTest {
     }
 
     @Test
+    void allowsTheModelToCiteTheAuthoritativeAmount() throws Exception {
+        stubLlmClient.respondWith("""
+                {
+                  "reason": "适用 COMP-001，赔付订单金额的50%，最高不超过20元",
+                  "customer_message": "很抱歉本次配送延误，已按规则为您处理",
+                  "risk_warnings": [],
+                  "escalate": false,
+                  "confidence": "HIGH"
+                }
+                """);
+
+        compensate("TEST003", "OVERTIME")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.suggested_amount").value(20.00))
+                .andExpect(jsonPath("$.data.output.guardrail_passed").value(true));
+    }
+
+    @Test
     void appliesTheModerateTier() throws Exception {
         compensate("TEST004", "OVERTIME")
                 .andExpect(status().isOk())

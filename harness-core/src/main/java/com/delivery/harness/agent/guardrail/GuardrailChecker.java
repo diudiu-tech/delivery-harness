@@ -34,7 +34,7 @@ public class GuardrailChecker {
 
     /** Currency expressions in prose, such as 20元, ￥20 or ¥ 20.00. */
     private static final Pattern CURRENCY_AMOUNT_MENTION = Pattern.compile(
-            "(?:[¥￥]\\s*-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)|-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s*元)");
+            "(?:[¥￥]\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))|-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s*元)");
 
     @Value("${harness.guardrail.max-compensation-amount:50.0}")
     private double maxCompensationAmount;
@@ -96,24 +96,65 @@ public class GuardrailChecker {
     }
 
     /**
-     * True when the model emitted a {@code suggested_amount} despite being
-     * instructed not to. The rule engine owns the amount, so a model that
-     * proposes one is disregarding its instructions and the output should be
-     * flagged for review rather than trusted.
-     */
-    public boolean mentionsAmountField(String content) {
-        return content != null && AMOUNT_FIELD_MENTION.matcher(content).find();
-    }
-
-    /**
-     * True when the model proposes a payout either as a forbidden field or in
-     * prose. Numeric evidence such as minutes or order ids is intentionally
-     * allowed; only currency-marked expressions are treated as amounts.
+     * True when the model contains a currency amount or a suggested amount
+     * field. This is retained as a broad detector for callers that need to
+     * know whether amount-like content was present.
      */
     public boolean mentionsCompensationAmount(String content) {
         return content != null
                 && (AMOUNT_FIELD_MENTION.matcher(content).find()
                 || CURRENCY_AMOUNT_MENTION.matcher(content).find());
+    }
+
+    /**
+     * True when an amount in the model output conflicts with the authoritative
+     * rule-engine amount. Repeating the approved amount in an explanation is
+     * harmless; a different number is a real policy conflict. A malformed
+     * amount field still fails closed because it cannot be compared safely.
+     */
+    public boolean mentionsConflictingCompensationAmount(String content, BigDecimal authoritativeAmount) {
+        if (content == null || !mentionsCompensationAmount(content)) {
+            return false;
+        }
+        if (authoritativeAmount == null) {
+            return true;
+        }
+
+        boolean comparableAmountFound = false;
+        Matcher fieldMatcher = SUGGESTED_AMOUNT_PATTERN.matcher(content);
+        while (fieldMatcher.find()) {
+            comparableAmountFound = true;
+            if (differs(new BigDecimal(fieldMatcher.group(1)), authoritativeAmount)) {
+                return true;
+            }
+        }
+
+        Matcher currencyMatcher = CURRENCY_AMOUNT_MENTION.matcher(content);
+        while (currencyMatcher.find()) {
+            String numericText = currencyMatcher.group(1);
+            if (numericText == null) {
+                String match = currencyMatcher.group();
+                int numberStart = 0;
+                while (numberStart < match.length()
+                        && (match.charAt(numberStart) == '￥' || match.charAt(numberStart) == '¥'
+                        || Character.isWhitespace(match.charAt(numberStart)))) {
+                    numberStart++;
+                }
+                numericText = match.substring(numberStart).replace("元", "").trim();
+            }
+            comparableAmountFound = true;
+            if (differs(new BigDecimal(numericText), authoritativeAmount)) {
+                return true;
+            }
+        }
+
+        // The field name was present, but its value was not a comparable
+        // number (for example {"suggested_amount":"20"}).
+        return AMOUNT_FIELD_MENTION.matcher(content).find() && !comparableAmountFound;
+    }
+
+    private static boolean differs(BigDecimal candidate, BigDecimal authoritativeAmount) {
+        return candidate.compareTo(authoritativeAmount) != 0;
     }
 
     private boolean checkAmountLimit(String content) {

@@ -4,6 +4,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,5 +54,25 @@ class GuardrailCheckerTest {
         assertTrue(checker.mentionsCompensationAmount("{\"reason\":\"建议赔付20元\"}"));
         assertTrue(checker.mentionsCompensationAmount("{\"reason\":\"建议赔付￥ 20.50\"}"));
         assertFalse(checker.mentionsCompensationAmount("{\"reason\":\"订单晚了20分钟\"}"));
+    }
+
+    @Test
+    void allowsTheAuthoritativeAmountToBeQuotedButRejectsConflicts() {
+        BigDecimal authoritative = new BigDecimal("20.00");
+
+        assertFalse(checker.mentionsConflictingCompensationAmount(
+                "适用 COMP-001，最高不超过20元", authoritative));
+        assertFalse(checker.mentionsConflictingCompensationAmount(
+                "规则引擎已判定本单赔付 ￥20.00，我仅说明依据", authoritative));
+        assertFalse(checker.mentionsConflictingCompensationAmount(
+                "{\"suggested_amount\":20}", authoritative));
+        assertTrue(checker.mentionsConflictingCompensationAmount(
+                "{\"suggested_amount\":\"20\"}", authoritative));
+        assertTrue(checker.mentionsConflictingCompensationAmount(
+                "建议赔付50元", authoritative));
+        assertTrue(checker.mentionsConflictingCompensationAmount(
+                "{\"suggested_amount\":999}", authoritative));
+        assertFalse(checker.mentionsConflictingCompensationAmount(
+                "订单晚了35分钟", authoritative));
     }
 }

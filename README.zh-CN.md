@@ -22,7 +22,7 @@
 - 内存文档导入、文本切片、按查询词命中率打分的词法检索，以及开机播种的规则库与案例库。
 - 内存评测运行；当用例未声明期望时，评分器报告「未度量」而不是满分。
 - 请求 Trace ID、真实的分步耗时、有界 Trace 存储、按场景的指标、反馈存储和建议式输出检查。
-- 本地 Ollama 配置、100 项测试、Maven Wrapper 和 GitHub Actions CI。
+- 本地 Ollama 配置、109 项测试、Maven Wrapper 和 GitHub Actions CI。
 
 以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
 
@@ -88,6 +88,12 @@ java -jar harness-api/target/harness-api.jar
 ```
 
 API 默认监听 `http://localhost:8080`。
+
+### Release 制品
+
+带 `v*` 标签的版本会发布可运行的 `harness-api` fat JAR，并附带 SHA-256
+校验文件，作为 GitHub Release 资产。本项目仍处于 0.x 阶段：HTTP 接口和
+响应字段可能在不提升主版本号的情况下变化；如果依赖响应结构，请固定到具体 Tag。
 
 ### 4. 调用工作流
 
@@ -187,7 +193,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-当前共 107 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
+当前共 109 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
 
 ## 安全与数据处理
 

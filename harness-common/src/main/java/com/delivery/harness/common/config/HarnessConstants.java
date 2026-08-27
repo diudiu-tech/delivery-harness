@@ -18,16 +18,10 @@ public final class HarnessConstants {
     public static final String STEP_FORMAT = "format";
 
     // Execution status
-    public static final String STATUS_PENDING = "PENDING";
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_SUCCESS = "SUCCESS";
     public static final String STATUS_FAILED = "FAILED";
     public static final String STATUS_PARTIAL_SUCCESS = "PARTIAL_SUCCESS";
-
-    // Confidence levels
-    public static final String CONFIDENCE_HIGH = "HIGH";
-    public static final String CONFIDENCE_MEDIUM = "MEDIUM";
-    public static final String CONFIDENCE_LOW = "LOW";
 
     // Tool names
     public static final String TOOL_ORDER_QUERY = "order_query";
@@ -35,9 +29,4 @@ public final class HarnessConstants {
     public static final String TOOL_CAPACITY_QUERY = "capacity_query";
     public static final String TOOL_COMPENSATION_RULE = "compensation_rule";
 
-    // Eval metrics
-    public static final String METRIC_RULE_ACCURACY = "rule_accuracy";
-    public static final String METRIC_EXPERT_ALIGNMENT = "expert_alignment";
-    public static final String METRIC_TOOL_EXECUTION = "tool_execution";
-    public static final String METRIC_HALLUCINATION = "hallucination_rate";
 }

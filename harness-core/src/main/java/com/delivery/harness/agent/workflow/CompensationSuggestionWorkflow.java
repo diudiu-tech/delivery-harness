@@ -165,18 +165,20 @@ public class CompensationSuggestionWorkflow {
                 StepRecorder.elapsedMs(llmStart), llmResponse.getErrorMessage());
 
         // Step 6: the guardrail checks the number that will actually be paid,
-        // plus the language the model produced. Both must hold.
+        // plus the language and any conflicting amount the model produced.
         long guardrailStart = System.nanoTime();
         boolean amountWithinPolicy = guardrailChecker.checkCompensationAmount(authoritativeAmount);
         boolean languageAcceptable = guardrailChecker.checkForbiddenPhrases(llmResponse.getContent());
-        boolean modelProposedAmount = guardrailChecker.mentionsCompensationAmount(llmResponse.getContent());
-        boolean guardrailPassed = amountWithinPolicy && languageAcceptable && !modelProposedAmount;
+        boolean modelAmountConflicts = guardrailChecker.mentionsConflictingCompensationAmount(
+                llmResponse.getContent(), authoritativeAmount);
+        boolean guardrailPassed = amountWithinPolicy && languageAcceptable && !modelAmountConflicts;
 
         Map<String, Object> guardrailOutput = new LinkedHashMap<>();
         guardrailOutput.put("passed", guardrailPassed);
         guardrailOutput.put("amount_within_policy", amountWithinPolicy);
         guardrailOutput.put("language_acceptable", languageAcceptable);
-        guardrailOutput.put("model_proposed_amount", modelProposedAmount);
+        guardrailOutput.put("model_proposed_amount", modelAmountConflicts);
+        guardrailOutput.put("model_amount_conflicts_with_policy", modelAmountConflicts);
         guardrailOutput.put("checked_amount", authoritativeAmount);
         steps.record(HarnessConstants.STEP_GUARDRAIL, "赔付金额与措辞校验",
                 guardrailPassed ? HarnessConstants.STATUS_SUCCESS : HarnessConstants.STATUS_FAILED,

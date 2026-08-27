@@ -1,8 +1,10 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project intends to use [Semantic Versioning](https://semver.org/) after its first release.
+All notable changes to this project will be documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-08-26
 
 ### Added
 
@@ -68,7 +70,7 @@ All notable changes to this project will be documented in this file. The format 
 - Upgraded the build baseline to Java 17 and Spring Boot 3.5.
 - Reduced dependencies to components used by the in-memory MVP.
 - Pinned the optional Ollama container and bound it to localhost.
-- Bound the API to localhost by default and aligned the pre-release version at `0.1.0-SNAPSHOT`.
+- Bound the API to localhost by default and established the first release build.
 
 - Rejected invalid text-chunk overlap values that could prevent loop progress.
 - Reused request trace IDs throughout workflow execution.

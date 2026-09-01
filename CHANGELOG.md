@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+- Bound the in-memory tool invocation log and expose its capacity as
+  `harness.observe.max-tool-invocations`.
+- Distinguish a completed workflow with an unavailable optional dependency as
+  `DEGRADED` instead of reporting it as a clean `SUCCESS`.
+- Bound the in-memory evaluation-case store and add a limit to case listing.
+- Added configurable bounds for evaluation runs, knowledge documents and chunks.
+
 ## [0.1.0] - 2026-08-26
 
 ### Added

@@ -48,6 +48,16 @@ class WorkflowEngineTest {
     }
 
     @Test
+    void marksAnOptionalDependencyFailureAsDegradedWhenTheWorkflowReturnsData() {
+        engine.registerHandler("degraded", (input, execution) ->
+                Collections.singletonMap("degraded", true));
+
+        WorkflowExecution execution = engine.execute("degraded", Collections.emptyMap());
+
+        assertEquals(HarnessConstants.STATUS_DEGRADED, execution.getStatus());
+    }
+
+    @Test
     void propagatesDependencyFailuresForHttpStatusMapping() {
         engine.registerHandler("llm-failure", (input, execution) -> {
             throw new LlmException("example-model", "provider unavailable");

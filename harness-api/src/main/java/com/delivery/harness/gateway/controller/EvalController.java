@@ -16,6 +16,7 @@ import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/eval")
 @RequiredArgsConstructor
+@Validated
 public class EvalController {
 
     private final EvalCaseManager caseManager;
@@ -35,9 +37,12 @@ public class EvalController {
     }
 
     @GetMapping("/cases")
-    public HarnessResponse<List<EvalCase>> listCases(@RequestParam(required = false) String scenario) {
+    public HarnessResponse<List<EvalCase>> listCases(
+            @RequestParam(required = false) String scenario,
+            @RequestParam(defaultValue = "100") @jakarta.validation.constraints.Min(1)
+            @jakarta.validation.constraints.Max(1000) int limit) {
         List<EvalCase> cases = scenario != null ? caseManager.findByScenario(scenario) : caseManager.findAll();
-        return HarnessResponse.success(cases);
+        return HarnessResponse.success(cases.stream().limit(limit).toList());
     }
 
     @PostMapping("/run")

@@ -2,10 +2,13 @@ package com.delivery.harness.eval.casemanager;
 
 import com.delivery.harness.common.dto.EvalCase;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -13,10 +16,29 @@ import java.util.stream.Collectors;
 public class EvalCaseManager {
 
     private final Map<String, EvalCase> caseStore = new ConcurrentHashMap<>();
+    private final Deque<String> caseOrder = new ConcurrentLinkedDeque<>();
+    private final int maxCases;
 
-    public void save(EvalCase evalCase) {
+    public EvalCaseManager() {
+        this(1000);
+    }
+
+    @Autowired
+    public EvalCaseManager(@Value("${harness.eval.max-cases:1000}") int maxCases) {
+        this.maxCases = Math.max(1, maxCases);
+    }
+
+    public synchronized void save(EvalCase evalCase) {
         validateCase(evalCase);
         caseStore.put(evalCase.getCaseId(), evalCase);
+        caseOrder.remove(evalCase.getCaseId());
+        caseOrder.addLast(evalCase.getCaseId());
+        while (caseOrder.size() > maxCases) {
+            String oldest = caseOrder.pollFirst();
+            if (oldest != null) {
+                caseStore.remove(oldest);
+            }
+        }
         log.info("EvalCase saved");
     }
 
@@ -52,8 +74,9 @@ public class EvalCaseManager {
         return new ArrayList<>(caseStore.values());
     }
 
-    public void deleteById(String caseId) {
+    public synchronized void deleteById(String caseId) {
         caseStore.remove(caseId);
+        caseOrder.remove(caseId);
     }
 
     public int count() {

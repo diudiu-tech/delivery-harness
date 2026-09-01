@@ -59,7 +59,7 @@ public class AgentOrchestrator {
             WorkflowExecution execution = workflowEngine.execute(request.getScenario(), request.getInput());
             observe(traceId, request, execution);
 
-            if (!HarnessConstants.STATUS_SUCCESS.equals(execution.getStatus())) {
+            if (!isCompleted(execution.getStatus())) {
                 return HarnessResponse.error(500, "Workflow execution failed", execution, traceId);
             }
             return HarnessResponse.success(execution, traceId);
@@ -97,7 +97,9 @@ public class AgentOrchestrator {
                     .build());
 
             String outcome = HarnessConstants.STATUS_SUCCESS.equals(execution.getStatus())
-                    ? "success" : "failure";
+                    ? "success"
+                    : HarnessConstants.STATUS_DEGRADED.equals(execution.getStatus())
+                    ? "degraded" : "failure";
             metricsService.incrementCounter(metricName(request.getScenario(), outcome));
             if (execution.getTotalDurationMs() != null) {
                 metricsService.recordLatency(
@@ -158,6 +160,11 @@ public class AgentOrchestrator {
 
     private static String metricName(String scenario, String suffix) {
         return (scenario == null ? "unknown" : scenario) + "_" + suffix;
+    }
+
+    private static boolean isCompleted(String status) {
+        return HarnessConstants.STATUS_SUCCESS.equals(status)
+                || HarnessConstants.STATUS_DEGRADED.equals(status);
     }
 
     @Data

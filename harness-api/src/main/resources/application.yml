@@ -22,3 +22,11 @@ harness:
     timeout-seconds: ${HARNESS_LLM_TIMEOUT_SECONDS:120}
   guardrail:
     max-compensation-amount: ${HARNESS_MAX_COMPENSATION_AMOUNT:50.0}
+  observe:
+    max-tool-invocations: ${HARNESS_MAX_TOOL_INVOCATIONS:2000}
+  eval:
+    max-cases: ${HARNESS_MAX_EVAL_CASES:1000}
+    max-runs: ${HARNESS_MAX_EVAL_RUNS:200}
+  knowledge:
+    max-documents: ${HARNESS_MAX_KNOWLEDGE_DOCUMENTS:1000}
+    max-chunks: ${HARNESS_MAX_KNOWLEDGE_CHUNKS:5000}

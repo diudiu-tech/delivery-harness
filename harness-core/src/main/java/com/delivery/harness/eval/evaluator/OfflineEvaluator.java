@@ -14,6 +14,7 @@ import com.delivery.harness.eval.scorer.RuleAccuracyScorer;
 import com.delivery.harness.eval.scorer.ToolExecutionScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -25,6 +26,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 /**
  * Runs evaluation cases synchronously and scores the results.
@@ -48,6 +50,11 @@ public class OfflineEvaluator {
 
     private final Map<String, EvalRun> runStore = new ConcurrentHashMap<>();
     private final Map<String, List<EvalResult>> resultStore = new ConcurrentHashMap<>();
+    private final ConcurrentLinkedDeque<String> runOrder = new ConcurrentLinkedDeque<>();
+    private final Object runStoreLock = new Object();
+
+    @Value("${harness.eval.max-runs:200}")
+    private int maxRuns = 200;
 
     public EvalRun startRun(List<String> caseIds, String modelVersion, String promptVersion) {
         String runId = UUID.randomUUID().toString();
@@ -65,7 +72,7 @@ public class OfflineEvaluator {
                 .status(HarnessConstants.STATUS_RUNNING)
                 .startedAt(LocalDateTime.now())
                 .build();
-        runStore.put(runId, run);
+        retainRun(runId, run);
 
         List<EvalResult> results = new ArrayList<>();
         String parentTraceId = TraceUtil.getTraceId();
@@ -89,12 +96,32 @@ public class OfflineEvaluator {
                 }
             }
         }
-        resultStore.put(runId, results);
+        synchronized (runStoreLock) {
+            if (runStore.containsKey(runId)) {
+                resultStore.put(runId, results);
+            }
+        }
 
         run.setStatus(statusFor(run));
         run.setFinishedAt(LocalDateTime.now());
         log.info("Eval run completed: runId={}, cases={}", runId, cases.size());
         return run;
+    }
+
+    private void retainRun(String runId, EvalRun run) {
+        synchronized (runStoreLock) {
+            runStore.put(runId, run);
+            runOrder.remove(runId);
+            runOrder.addLast(runId);
+            int capacity = Math.max(1, maxRuns);
+            while (runOrder.size() > capacity) {
+                String oldest = runOrder.pollFirst();
+                if (oldest != null) {
+                    runStore.remove(oldest);
+                    resultStore.remove(oldest);
+                }
+            }
+        }
     }
 
     private EvalResult evaluateCase(EvalCase evalCase) {
@@ -113,7 +140,7 @@ public class OfflineEvaluator {
                     : Collections.emptyMap();
 
             if (response.getCode() != 0 || execution == null
-                    || !HarnessConstants.STATUS_SUCCESS.equals(execution.getStatus())) {
+                    || !isCompleted(execution.getStatus())) {
                 String errorMessage = response.getMessage();
                 if (errorMessage == null || errorMessage.isBlank()) {
                     errorMessage = "Workflow returned code " + response.getCode();
@@ -201,5 +228,10 @@ public class OfflineEvaluator {
             return HarnessConstants.STATUS_PARTIAL_SUCCESS;
         }
         return HarnessConstants.STATUS_SUCCESS;
+    }
+
+    private static boolean isCompleted(String status) {
+        return HarnessConstants.STATUS_SUCCESS.equals(status)
+                || HarnessConstants.STATUS_DEGRADED.equals(status);
     }
 }

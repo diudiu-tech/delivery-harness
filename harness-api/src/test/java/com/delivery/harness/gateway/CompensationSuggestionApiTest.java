@@ -157,6 +157,7 @@ class CompensationSuggestionApiTest {
 
         compensate("TEST003", "OVERTIME")
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
                 .andExpect(jsonPath("$.data.output.suggested_amount").value(20.00))
                 .andExpect(jsonPath("$.data.output.model_output_available").value(false))
                 .andExpect(jsonPath("$.data.output.approval_reasons"

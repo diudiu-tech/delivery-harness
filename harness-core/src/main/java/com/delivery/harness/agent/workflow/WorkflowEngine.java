@@ -44,7 +44,10 @@ public class WorkflowEngine {
         try {
             Map<String, Object> output = handler.handle(input, execution);
             execution.setOutput(output);
-            execution.setStatus(HarnessConstants.STATUS_SUCCESS);
+            boolean degraded = output != null && Boolean.TRUE.equals(output.get(HarnessConstants.OUTPUT_DEGRADED));
+            execution.setStatus(degraded
+                    ? HarnessConstants.STATUS_DEGRADED
+                    : HarnessConstants.STATUS_SUCCESS);
         } catch (HarnessException e) {
             log.error("Workflow dependency failed: scenario={}, executionId={}", scenario, executionId, e);
             throw e;

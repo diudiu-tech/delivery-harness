@@ -6,6 +6,7 @@ import com.delivery.harness.common.dto.ToolResult;
 import com.delivery.harness.common.exception.ToolException;
 import com.delivery.harness.common.util.TraceUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -18,7 +19,12 @@ public class ToolGateway {
 
     private final Map<String, ToolExecutor> executors = new ConcurrentHashMap<>();
     private final Map<String, ToolDefinition> definitions = new ConcurrentHashMap<>();
-    private final List<ToolInvocation> invocationLog = Collections.synchronizedList(new ArrayList<>());
+    private final Deque<ToolInvocation> invocationLog = new ArrayDeque<>();
+    private final int maxInvocations;
+
+    public ToolGateway(@Value("${harness.observe.max-tool-invocations:2000}") int maxInvocations) {
+        this.maxInvocations = Math.max(1, maxInvocations);
+    }
 
     public void register(String toolName, ToolDefinition definition, ToolExecutor executor) {
         definitions.put(toolName, definition);
@@ -62,12 +68,14 @@ public class ToolGateway {
     }
 
     public List<ToolInvocation> getInvocationLog() {
-        return Collections.unmodifiableList(new ArrayList<>(invocationLog));
+        synchronized (invocationLog) {
+            return Collections.unmodifiableList(new ArrayList<>(invocationLog));
+        }
     }
 
     private void logInvocation(String invocationId, String toolName, Map<String, Object> parameters,
                                long duration, boolean success, String errorMessage) {
-        invocationLog.add(ToolInvocation.builder()
+        ToolInvocation invocation = ToolInvocation.builder()
                 .invocationId(invocationId)
                 .traceId(TraceUtil.getTraceId())
                 .toolName(toolName)
@@ -76,7 +84,13 @@ public class ToolGateway {
                 .durationMs(duration)
                 .success(success)
                 .errorMessage(errorMessage)
-                .build());
+                .build();
+        synchronized (invocationLog) {
+            invocationLog.addLast(invocation);
+            while (invocationLog.size() > maxInvocations) {
+                invocationLog.removeFirst();
+            }
+        }
     }
 
     @FunctionalInterface

@@ -22,7 +22,8 @@ An AI harness reference implementation for on-demand delivery operations. It com
 - In-memory document ingestion, text chunking, lexical retrieval scored by query-term overlap, and a rule and case base seeded at startup.
 - In-memory evaluation runs whose scorers report "not measured" rather than a perfect score when a case declares no expectation.
 - Request trace IDs, per-step durations, a bounded trace store, per-scenario metrics, feedback storage, and advisory output checks.
-- A local Ollama profile, 109 tests, Maven Wrapper, and GitHub Actions CI.
+- Completed workflows with an unavailable optional dependency are reported as `DEGRADED`; the deterministic result remains available and the affected step is recorded as failed.
+- A local Ollama profile, 112 tests, Maven Wrapper, and GitHub Actions CI.
 
 The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, durable persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
 
@@ -180,6 +181,11 @@ Additional Spring properties, settable in `application.yml` or as `--property=va
 | `harness.eval.seed.enabled` | `true` | Load the starter evaluation cases at startup |
 | `harness.observe.max-traces` | `500` | Size of the in-memory trace ring |
 | `harness.observe.max-feedback` | `1000` | Maximum in-memory feedback records |
+| `harness.observe.max-tool-invocations` | `2000` | Maximum recent tool invocation records |
+| `harness.eval.max-cases` | `1000` | Maximum in-memory evaluation cases |
+| `harness.eval.max-runs` | `200` | Maximum retained in-memory evaluation runs |
+| `harness.knowledge.max-documents` | `1000` | Maximum in-memory knowledge documents |
+| `harness.knowledge.max-chunks` | `5000` | Maximum in-memory knowledge chunks |
 
 Run the model smoke test after installing the configured model:
 
@@ -193,7 +199,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-The suite contains 109 tests. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
+The suite contains 112 tests. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
 
 ## Security and data handling
 

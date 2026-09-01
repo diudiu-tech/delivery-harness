@@ -20,8 +20,13 @@ public final class HarnessConstants {
     // Execution status
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_SUCCESS = "SUCCESS";
+    /** Deterministic work completed, but an optional dependency was unavailable. */
+    public static final String STATUS_DEGRADED = "DEGRADED";
     public static final String STATUS_FAILED = "FAILED";
     public static final String STATUS_PARTIAL_SUCCESS = "PARTIAL_SUCCESS";
+
+    // Workflow output markers
+    public static final String OUTPUT_DEGRADED = "degraded";
 
     // Tool names
     public static final String TOOL_ORDER_QUERY = "order_query";

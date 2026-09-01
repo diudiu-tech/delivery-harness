@@ -22,7 +22,8 @@
 - 内存文档导入、文本切片、按查询词命中率打分的词法检索，以及开机播种的规则库与案例库。
 - 内存评测运行；当用例未声明期望时，评分器报告「未度量」而不是满分。
 - 请求 Trace ID、真实的分步耗时、有界 Trace 存储、按场景的指标、反馈存储和建议式输出检查。
-- 本地 Ollama 配置、109 项测试、Maven Wrapper 和 GitHub Actions CI。
+- 可选依赖不可用但确定性结果仍可返回时，工作流状态为 `DEGRADED`；受影响步骤会记录为失败，避免与完整成功混淆。
+- 本地 Ollama 配置、112 项测试、Maven Wrapper 和 GitHub Actions CI。
 
 以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
 
@@ -180,6 +181,11 @@ curl --fail-with-body \
 | `harness.eval.seed.enabled` | `true` | 启动时载入初始评测用例 |
 | `harness.observe.max-traces` | `500` | 内存 Trace 环形缓冲容量 |
 | `harness.observe.max-feedback` | `1000` | 内存反馈记录上限 |
+| `harness.observe.max-tool-invocations` | `2000` | 最近工具调用记录上限 |
+| `harness.eval.max-cases` | `1000` | 内存评测用例上限 |
+| `harness.eval.max-runs` | `200` | 内存保留的评测运行上限 |
+| `harness.knowledge.max-documents` | `1000` | 内存知识文档上限 |
+| `harness.knowledge.max-chunks` | `5000` | 内存知识切片上限 |
 
 安装模型后可运行冒烟测试：
 
@@ -193,7 +199,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-当前共 109 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
+当前共 112 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
 
 ## 安全与数据处理
 

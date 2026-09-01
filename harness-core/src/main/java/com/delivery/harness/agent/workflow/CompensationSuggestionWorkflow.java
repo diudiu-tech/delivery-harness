@@ -135,6 +135,7 @@ public class CompensationSuggestionWorkflow {
         String prompt = buildJustificationPrompt(order, timeline, complaintType, decision, retrievalResult);
         long llmStart = System.nanoTime();
         LlmChatResponse llmResponse;
+        boolean degraded = false;
         try {
             llmResponse = llmGateway.chat(LlmChatRequest.builder()
                     .scenario(HarnessConstants.SCENARIO_COMPENSATION)
@@ -146,6 +147,7 @@ public class CompensationSuggestionWorkflow {
             // step so callers can distinguish degraded mode from a clean run.
             log.warn("Compensation justification unavailable; continuing with rule decision: model={}, errorType={}",
                     e.getModel(), e.getClass().getSimpleName());
+            degraded = true;
             llmResponse = LlmChatResponse.builder()
                     .model(e.getModel())
                     .success(false)
@@ -189,6 +191,7 @@ public class CompensationSuggestionWorkflow {
         Map<String, Object> formatted = outputFormatter.formatCompensationSuggestion(
                 order, complaintType, timeline, decision, llmResponse.getContent(),
                 retrievalResult, guardrailPassed);
+        formatted.put(HarnessConstants.OUTPUT_DEGRADED, degraded);
         steps.record(HarnessConstants.STEP_FORMAT, "输出格式化", HarnessConstants.STATUS_SUCCESS,
                 Collections.emptyMap(), Collections.singletonMap("field_count", formatted.size()),
                 StepRecorder.elapsedMs(formatStart));

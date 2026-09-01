@@ -68,6 +68,24 @@ class EvalCaseManagerTest {
         assertTrue(error.getMessage().contains("missing-case"));
     }
 
+    @Test
+    void evictsTheOldestCaseWhenTheConfiguredCapacityIsExceeded() {
+        EvalCaseManager bounded = new EvalCaseManager(2);
+        bounded.save(caseWithId("case-1"));
+        bounded.save(caseWithId("case-2"));
+        bounded.save(caseWithId("case-3"));
+
+        assertEquals(2, bounded.count());
+        assertTrue(bounded.findById("case-1").isEmpty());
+        assertTrue(bounded.findById("case-3").isPresent());
+    }
+
+    private EvalCase caseWithId(String caseId) {
+        EvalCase evalCase = validCase();
+        evalCase.setCaseId(caseId);
+        return evalCase;
+    }
+
     private EvalCase validCase() {
         return EvalCase.builder()
                 .caseId("case-1")

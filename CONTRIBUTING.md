@@ -86,6 +86,23 @@ To see the current number without the gate blocking you:
 open harness-core/target/site/jacoco/index.html
 ```
 
+## Releasing
+
+1. Choose a new, unused release version. Update the root `pom.xml` version and
+   all three module parent versions before creating its tag.
+2. Add the corresponding dated entry to `CHANGELOG.md`, then run
+   `./tools/check-format.sh` and `./mvnw clean verify`.
+3. Merge the release preparation into `main`. Confirm that the release commit's
+   POM version exactly matches the intended tag without its `v` prefix, and
+   that no POM contains a `-SNAPSHOT` version.
+4. Create and push the new `v<version>` tag on that verified commit. The release
+   workflow checks the tag against the POM version before publishing assets.
+
+Published tags are immutable: never move or reuse them to repair a release.
+The existing `v0.2.0` tag still contains POM version `0.1.0`, so rerunning its
+release workflow will fail version validation. Prepare a new version and tag
+for the next release instead.
+
 ## Pull requests
 
 A pull request should explain the problem, the chosen approach, test evidence, security/data implications, and documentation changes. Mark mock implementations and planned integrations clearly. Maintainers may ask for a smaller scope or additional tests before merging.

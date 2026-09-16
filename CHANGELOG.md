@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Fixed
 
+- Align the Compose Ollama image with the Dockerfile at 0.34.0 and enable
+  Dependabot updates for the root Docker Compose manifest.
+- Correct both READMEs to report 114 tests.
 - Treat unparseable model compensation amounts as conflicts requiring review.
 - Align the root and module POM versions with 0.2.0 for release validation.
 

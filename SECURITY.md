@@ -6,7 +6,7 @@ This repository is a pre-1.0 reference implementation. Security fixes are applie
 
 ## Reporting a vulnerability
 
-Please do not disclose vulnerabilities in public issues, pull requests, discussions, or logs. Use GitHub's **Report a vulnerability** / private vulnerability reporting feature after the repository is published. If that feature is unavailable, contact the repository owner privately.
+Please do not disclose vulnerabilities in public issues, pull requests, discussions, or logs. Use GitHub's **Report a vulnerability** / private vulnerability reporting feature. If that feature is unavailable, contact the repository owner privately.
 
 Include the affected component, impact, reproduction steps or proof of concept, and any suggested mitigation. Do not include real personal data, production credentials, or data obtained without authorization. You can expect an acknowledgement when a maintainer receives the report; remediation timelines depend on severity and maintainer availability.
 

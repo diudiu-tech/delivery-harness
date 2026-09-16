@@ -32,9 +32,13 @@ public class GuardrailChecker {
     /** Any mention of the amount field, whether or not the value parses. */
     private static final Pattern AMOUNT_FIELD_MENTION = Pattern.compile("\"?suggested_amount\"?\\s*[:：]");
 
-    /** Currency expressions in prose, such as 20元, ￥20 or ¥ 20.00. */
+    /**
+     * Currency expressions in prose, such as 20元, ￥20 or ¥ 20.00.
+     * Possessive digit runs avoid backtracking; the suffix branch must not
+     * retry from every digit inside a long number when no currency follows.
+     */
     private static final Pattern CURRENCY_AMOUNT_MENTION = Pattern.compile(
-            "(?:[¥￥]\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))|-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s*元)");
+            "(?:[¥￥]\\s*(-?(?:\\d++(?:\\.\\d*+)?|\\.\\d++))|(?<!\\d)-?(?:\\d++(?:\\.\\d*+)?|\\.\\d++)\\s*元)");
 
     @Value("${harness.guardrail.max-compensation-amount:50.0}")
     private double maxCompensationAmount;

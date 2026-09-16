@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Treat unparseable model compensation amounts as conflicts requiring review.
+- Align the root and module POM versions with 0.2.0 for release validation.
+
+### Changed
+
+- Upgrade the optional Ollama runtime from 0.32.4 to 0.34.0.
+- Update the security policy to direct reports to GitHub private vulnerability reporting.
+
+## [0.2.0] - 2026-09-01
+
+### Changed
+
 - Bound the in-memory tool invocation log and expose its capacity as
   `harness.observe.max-tool-invocations`.
 - Distinguish a completed workflow with an unavailable optional dependency as

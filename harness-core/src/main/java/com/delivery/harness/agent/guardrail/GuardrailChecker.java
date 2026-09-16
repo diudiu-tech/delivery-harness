@@ -124,7 +124,7 @@ public class GuardrailChecker {
         Matcher fieldMatcher = SUGGESTED_AMOUNT_PATTERN.matcher(content);
         while (fieldMatcher.find()) {
             comparableAmountFound = true;
-            if (differs(new BigDecimal(fieldMatcher.group(1)), authoritativeAmount)) {
+            if (differs(fieldMatcher.group(1), authoritativeAmount)) {
                 return true;
             }
         }
@@ -143,7 +143,7 @@ public class GuardrailChecker {
                 numericText = match.substring(numberStart).replace("元", "").trim();
             }
             comparableAmountFound = true;
-            if (differs(new BigDecimal(numericText), authoritativeAmount)) {
+            if (differs(numericText, authoritativeAmount)) {
                 return true;
             }
         }
@@ -153,8 +153,13 @@ public class GuardrailChecker {
         return AMOUNT_FIELD_MENTION.matcher(content).find() && !comparableAmountFound;
     }
 
-    private static boolean differs(BigDecimal candidate, BigDecimal authoritativeAmount) {
-        return candidate.compareTo(authoritativeAmount) != 0;
+    private static boolean differs(String candidate, BigDecimal authoritativeAmount) {
+        try {
+            return new BigDecimal(candidate).compareTo(authoritativeAmount) != 0;
+        } catch (NumberFormatException e) {
+            log.warn("Guardrail: unparseable compensation amount treated as a conflict");
+            return true;
+        }
     }
 
     private boolean checkAmountLimit(String content) {

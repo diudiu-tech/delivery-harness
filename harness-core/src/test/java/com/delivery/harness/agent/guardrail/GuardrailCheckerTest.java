@@ -75,4 +75,22 @@ class GuardrailCheckerTest {
         assertFalse(checker.mentionsConflictingCompensationAmount(
                 "订单晚了35分钟", authoritative));
     }
+
+    @Test
+    void treatsUnparseableExponentsAsConflicts() {
+        BigDecimal authoritative = new BigDecimal("20.00");
+        for (String amount : new String[]{"1e2147483648", "1e-2147483648", "1e99999999999999999999"}) {
+            assertTrue(checker.mentionsConflictingCompensationAmount(
+                    "{\"suggested_amount\":" + amount + "}", authoritative));
+        }
+    }
+
+    @Test
+    void comparesValidScientificNotationWithTheAuthoritativeAmount() {
+        BigDecimal authoritative = new BigDecimal("20.00");
+        assertFalse(checker.mentionsConflictingCompensationAmount(
+                "{\"suggested_amount\":2e1}", authoritative));
+        assertTrue(checker.mentionsConflictingCompensationAmount(
+                "{\"suggested_amount\":3e1}", authoritative));
+    }
 }

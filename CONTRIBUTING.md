@@ -64,8 +64,10 @@ so in the message rather than splitting it artificially.
 | CodeQL | Scheduled and on pull requests | Fix the finding or annotate it |
 
 The formatting gate is a shell script rather than a build plugin. It enforces
-the four rules `.editorconfig` already declares — no trailing whitespace, a
-final newline, LF endings, no leading tabs in Java or XML — and nothing else.
+the rules `.editorconfig` declares: no trailing whitespace, a final newline,
+LF endings, no leading tabs in Java or XML, and a 120-character Java line
+limit. Java line wrapping requires a source edit; `--fix` only repairs
+whitespace. Frontend source is included in the text checks.
 Those rules are worth enforcing; a plugin dependency, its version, and its
 configuration surface are not worth carrying to enforce them.
 

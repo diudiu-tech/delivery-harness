@@ -73,16 +73,15 @@ configuration surface are not worth carrying to enforce them.
 lands above it. Never lower it to make a build pass — if coverage dropped, that
 is the finding.
 
-The current floor is `0.30`, calibrated against the current measured line
-coverage on `harness-core`. That figure is low mainly because the end-to-end tests live in
-`harness-api`, so the `harness-core` lines they cover are not attributed to
-this module; `jacoco:report-aggregate` is the fix. Read the number as "nobody
-deleted the unit tests", not as a statement about quality.
+The current floor is `0.70`, calibrated against the current measured line
+coverage on `harness-core` (about 0.73). The core unit-test floor is measured
+independently from the end-to-end tests in `harness-api`.
+The cross-module report is generated at `harness-api/target/site/jacoco-aggregate/`.
 
-To see the current number without the gate blocking you:
+To inspect current coverage:
 
 ```bash
-./mvnw clean verify -Djacoco.core.line.minimum=0
+./mvnw clean verify
 open harness-core/target/site/jacoco/index.html
 ```
 

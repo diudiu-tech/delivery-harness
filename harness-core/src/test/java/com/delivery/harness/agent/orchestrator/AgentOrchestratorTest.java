@@ -42,6 +42,8 @@ class AgentOrchestratorTest {
     @Test
     void recordsDependencyFailureBeforeRethrowing() {
         workflowEngine.registerHandler("dependency-failure", (input, execution) -> {
+            execution.getSteps().add(WorkflowExecution.StepExecution.builder().name("order read").status("SUCCESS").stepType("tool_call").build());
+            execution.getSteps().add(WorkflowExecution.StepExecution.builder().name("model call").status("FAILED").stepType("llm_call").build());
             throw new LlmException("test-model", "unavailable");
         });
         TraceUtil.setTraceId("dependency-trace");
@@ -49,6 +51,7 @@ class AgentOrchestratorTest {
         assertThrows(LlmException.class, () -> orchestrator.process(request("dependency-failure")));
 
         assertEquals("FAILED", traceService.getTrace("dependency-trace").orElseThrow().getStatus());
+        assertEquals(2, traceService.getTrace("dependency-trace").orElseThrow().getSpans().size());
     }
 
     @Test

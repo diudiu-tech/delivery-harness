@@ -62,4 +62,9 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(HarnessResponse.error(500, "Internal server error"));
     }
+
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<HarnessResponse<?>> handleMissingResource(Exception e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(HarnessResponse.error(404,"Resource not found"));
+    }
 }

@@ -133,4 +133,18 @@ class GuardrailCheckerTest {
                     digits + "；赔付30元", new BigDecimal("20")));
         });
     }
+
+    @Test
+    void blocksCompletedPaymentClaimsAndUncomparableCurrencyVariants() {
+        for (String claim : new String[]{"退款已完成", "款项已到账", "已发放红包", "已按规则为您处理", "refund completed"}) {
+            assertFalse(checker.checkForbiddenPhrases(claim), claim);
+        }
+        for (String amount : new String[]{"五百元", "伍佰元", "￥五百", "500 CNY", "CNY 500", "$500", "500块", "人民币500", "500人民币"}) {
+            assertTrue(checker.mentionsCompensationAmount(amount), amount);
+            assertTrue(checker.mentionsConflictingCompensationAmount(amount, new BigDecimal("20")), amount);
+        }
+        assertTrue(checker.mentionsConflictingCompensationAmount("５０元", new BigDecimal("20")));
+        assertFalse(checker.mentionsConflictingCompensationAmount("２０元", new BigDecimal("20")));
+        assertTrue(checker.checkForbiddenPhrases("建议按规则处理，尚未执行"));
+    }
 }

@@ -37,6 +37,9 @@ Thumbs.db
 *.log
 logs/
 *.pid
+data/
+*.mv.db
+*.trace.db
 
 # Local model data and large model artifacts
 .ollama/

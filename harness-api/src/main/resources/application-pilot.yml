@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: ${HARNESS_DATABASE_URL:}
+    username: ${HARNESS_DATABASE_USERNAME:}
+    password: ${HARNESS_DATABASE_PASSWORD:}
+harness:
+  knowledge:
+    seed:
+      enabled: false
+  eval:
+    seed:
+      enabled: false

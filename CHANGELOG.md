@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Detailed source-backed product PRD and a persistent v2 decision workbench.
+- Scoped demo/pilot identity boundaries, read-only source contract adapter, versioned evidence/policy/knowledge and independent human review.
+- Durable bounded execution and isolated evaluation queues, exact labelled gates, runtime publication/rollout and structured feedback.
+- Disabled-by-default funds outbox, verified channel eligibility, signed callbacks/reconciliation and reviewed retention plans.
+- API contracts, implementation traceability, deployment/recovery instructions and acceptance tests.
+
+### Changed
+
+- Preserve missing facts and unknown amounts; validate structured model citations and keep authoritative money in rules.
+- Degrade both workflows on optional dependency failures, retain failed steps and separate validated server messages from model drafts.
+- Pilot rejects legacy synthetic v1 routes and never falls back to fixtures.
+
+
 ### Fixed
 
 - Avoid quadratic currency-amount matching on long model-generated digit runs.

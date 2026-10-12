@@ -6,6 +6,9 @@ import com.delivery.harness.knowledge.casemgmt.CaseBaseService;
 import com.delivery.harness.knowledge.ingestion.KnowledgeChunk;
 import com.delivery.harness.knowledge.ingestion.KnowledgeChunkRepository;
 import com.delivery.harness.knowledge.rule.RuleBaseService;
+import com.delivery.harness.platform.quality.RuntimeBinding;
+import com.delivery.harness.platform.quality.QualityData;
+import com.delivery.harness.platform.quality.PolicyService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -24,6 +27,8 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.time.Instant;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -71,9 +76,17 @@ public class RetrievalService {
         List<RetrievalItem> items = new ArrayList<>();
 
         if (wants(request, "rule")) {
-            for (RuleInfo rule : ruleBaseService.findAll()) {
+            List<RuleInfo> applicable = new ArrayList<>();
+            if (!"compensation_suggestion".equals(request.getScenario())) {
+                applicable.addAll(ruleBaseService.findByTypeAt("analysis", RuntimeBinding.asOf()));
+            }
+            if (!"abnormal_order_analysis".equals(request.getScenario())) {
+                applicable.addAll(ruleBaseService.findByTypeAt("compensation", RuntimeBinding.asOf()));
+            }
+            for (RuleInfo rule : applicable) {
                 if (!Boolean.FALSE.equals(rule.getEnabled())) {
-                    double overlap = overlap(terms, rule.getRuleName(), rule.getContent(),
+                    double overlap = request.getQuery().equalsIgnoreCase(rule.getRuleId()) ? 2d
+                            : overlap(terms, rule.getRuleId(), rule.getRuleName(), rule.getContent(),
                             rule.getCategory(), joinTags(rule.getTags()));
                     if (overlap > 0) {
                         items.add(RetrievalItem.builder()
@@ -82,13 +95,17 @@ public class RetrievalService {
                                 .title(rule.getRuleName())
                                 .content(rule.getContent())
                                 .score(round(overlap * RULE_WEIGHT))
+                                .versionId(RuntimeBinding.current() == null ? rule.getVersion() : RuntimeBinding.policyVersion())
+                                .citationId(RuntimeBinding.current() == null ? rule.getRuleId() + "@" + rule.getVersion()
+                                        : RuntimeBinding.policyVersion() + ":" + rule.getRuleId())
+                                .contentHash(QualityData.hash(rule.getContent()))
                                 .build());
                     }
                 }
             }
         }
 
-        if (wants(request, "case")) {
+        if (wants(request, "case") && RuntimeBinding.current() == null) {
             for (CaseInfo caseInfo : casesInScope(request)) {
                 double overlap = overlap(terms, caseInfo.getTitle(), caseInfo.getSummary(),
                         caseInfo.getExpertAnswer(), joinTags(caseInfo.getTags()));
@@ -104,7 +121,7 @@ public class RetrievalService {
             }
         }
 
-        if (wants(request, "document")) {
+        if (wants(request, "document") && RuntimeBinding.current() == null) {
             for (KnowledgeChunk chunk : chunkRepository.findAll()) {
                 double overlap = overlap(terms, chunk.getContent());
                 if (overlap > 0) {
@@ -115,6 +132,37 @@ public class RetrievalService {
                             .content(chunk.getContent())
                             .score(round(overlap * DOCUMENT_WEIGHT))
                             .build());
+                }
+            }
+        }
+        if (wants(request, "document") && RuntimeBinding.current() != null) {
+            RuntimeBinding.Snapshot runtime = RuntimeBinding.current();
+            String city = runtime.order() == null ? "" : runtime.order().getCityCode();
+            String station = runtime.order() == null ? "" : runtime.order().getStationId();
+            for (Map<String, Object> document : runtime.knowledge()) {
+                if (!PolicyService.applicable(document, city, station, RuntimeBinding.asOf())) {
+                    continue;
+                }
+                if (document.get("scenario") != null && !document.get("scenario").equals(request.getScenario())) {
+                    continue;
+                }
+                Object chunks = document.get("chunks");
+                if (!(chunks instanceof Iterable<?> iterable)) {
+                    continue;
+                }
+                for (Object raw : iterable) {
+                    Map<String, Object> chunk = QualityData.map(raw);
+                    String content = QualityData.text(chunk, "content", "");
+                    double matched = overlap(terms, content, QualityData.text(chunk, "title_path", ""));
+                    if (matched > 0) {
+                        items.add(RetrievalItem.builder().sourceType("document")
+                                .sourceId(QualityData.text(chunk, "chunk_id", ""))
+                                .citationId(QualityData.text(chunk, "chunk_id", ""))
+                                .versionId(QualityData.text(document, "version_id", ""))
+                                .contentHash(QualityData.text(chunk, "content_hash", ""))
+                                .title(QualityData.text(chunk, "title_path", ""))
+                                .content(content).score(round(matched * DOCUMENT_WEIGHT)).build());
+                    }
                 }
             }
         }
@@ -227,5 +275,8 @@ public class RetrievalService {
         private String title;
         private String content;
         private double score;
+        private String versionId;
+        private String citationId;
+        private String contentHash;
     }
 }

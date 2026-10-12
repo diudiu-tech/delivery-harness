@@ -4,6 +4,7 @@ import com.delivery.harness.common.dto.WorkflowExecution;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 /**
  * Appends timed steps to a {@link WorkflowExecution}.
@@ -39,6 +40,9 @@ final class StepRecorder {
             Map<String, Object> output,
             long durationMs,
             String errorMessage) {
+        Map<String, Object> details = new LinkedHashMap<>(output == null ? Collections.emptyMap() : output);
+        details.putIfAbsent("required", "analysis".equals(stepType) || "format".equals(stepType)
+                || "order_query".equals(toolName) || "compensation_rule".equals(toolName));
         execution.getSteps().add(WorkflowExecution.StepExecution.builder()
                 .order(execution.getSteps().size() + 1)
                 .stepType(stepType)
@@ -46,7 +50,7 @@ final class StepRecorder {
                 .toolName(toolName)
                 .status(status)
                 .input(input == null ? Collections.emptyMap() : input)
-                .output(output == null ? Collections.emptyMap() : output)
+                .output(details)
                 .durationMs(durationMs)
                 .errorMessage(errorMessage)
                 .build());

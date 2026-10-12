@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 
 @Data
 @Builder
@@ -24,4 +25,9 @@ public class RuleInfo {
     private List<String> tags;
     private Map<String, Object> conditions;
     private Map<String, Object> actions;
+    private String version;
+    private String lifecycle;
+    private Instant effectiveFrom;
+    private Instant effectiveTo;
+    private String currency;
 }

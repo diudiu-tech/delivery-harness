@@ -42,6 +42,8 @@ public class ExpertAlignmentScorer {
         if (actualOutput == null || actualOutput.isEmpty()) {
             return OptionalDouble.of(0d);
         }
+        // A parsed draft can agree with a label while being unusable as the system's conclusion.
+        if (Boolean.FALSE.equals(actualOutput.get("model_adoptable"))) { return OptionalDouble.of(0d); }
 
         String primaryCause = primaryCause(actualOutput);
         if (primaryCause != null && !primaryCause.isBlank()) {

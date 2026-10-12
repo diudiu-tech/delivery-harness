@@ -17,6 +17,7 @@ public class EvalResult {
     private String runId;
     private String caseId;
     private String traceId;
+    private String executionStatus;
     private Map<String, Object> actualOutput;
     private EvalScore score;
     private Long durationMs;

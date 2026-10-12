@@ -80,6 +80,18 @@ class ScorerTest {
                 ruleScorer.score(caseWithRules(List.of("ANA-001")), Collections.emptyMap()).orElseThrow());
     }
 
+    @Test
+    void blockedModelConclusionCannotEarnAccuracyFromItsRawClaimOrText() {
+        Map<String, Object> output = analysisOutput("商家出餐慢", "ANA-001");
+        output.put("model_adoptable", false);
+        assertEquals(0.0d, ruleScorer.score(caseWithRules(List.of("ANA-001")), output).orElseThrow());
+        EvalCase labelled = EvalCase.builder().caseId("C").scenario("s").input(Map.of()).expertAnswer("商家出餐慢").build();
+        assertEquals(0.0d, expertScorer.score(labelled, output).orElseThrow());
+        // Deterministic policy selection is independent of whether a model explanation is usable.
+        output.put("matched_rules", List.of(Map.of("rule_id", "COMP-001")));
+        assertEquals(1.0d, ruleScorer.score(caseWithRules(List.of("COMP-001")), output).orElseThrow());
+    }
+
     // --- expert alignment --------------------------------------------------
 
     @Test

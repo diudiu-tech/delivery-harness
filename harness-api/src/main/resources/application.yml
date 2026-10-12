@@ -1,6 +1,17 @@
 spring:
   application:
     name: delivery-harness
+  profiles:
+    active: ${HARNESS_MODE:demo}
+  datasource:
+    url: ${HARNESS_DATABASE_URL:jdbc:h2:mem:harness;DB_CLOSE_DELAY=-1}
+    username: ${HARNESS_DATABASE_USERNAME:sa}
+    password: ${HARNESS_DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+  flyway:
+    enabled: true
   jackson:
     default-property-inclusion: non_null
     serialization:
@@ -15,7 +26,35 @@ server:
       force: true
 
 harness:
+  mode: ${HARNESS_MODE:demo}
+  security:
+    tokens: '${HARNESS_AUTH_TOKENS:[]}'
+  adapter:
+    order-endpoint: ${HARNESS_ORDER_ENDPOINT:}
+    allowed-hosts: ${HARNESS_ORDER_ALLOWED_HOSTS:}
+    token: ${HARNESS_ORDER_TOKEN:}
+  compensation:
+    execution-enabled: ${HARNESS_COMPENSATION_EXECUTION_ENABLED:false}
+    channel-endpoint: ${HARNESS_COMPENSATION_CHANNEL_ENDPOINT:}
+    allowed-hosts: ${HARNESS_COMPENSATION_ALLOWED_HOSTS:}
+    channel-token: ${HARNESS_COMPENSATION_CHANNEL_TOKEN:}
+    callback-secret: ${HARNESS_COMPENSATION_CALLBACK_SECRET:}
+  platform:
+    mode: ${HARNESS_MODE:demo}
+  execution:
+    deterministic-only: ${HARNESS_DETERMINISTIC_ONLY:false}
+    online-workers: ${HARNESS_EXECUTION_WORKERS:2}
+    online-queue: ${HARNESS_EXECUTION_QUEUE:50}
+    deadline-seconds: ${HARNESS_EXECUTION_DEADLINE_SECONDS:15}
+  review:
+    approval-threshold: ${HARNESS_REVIEW_APPROVAL_THRESHOLD:10.00}
+  build:
+    git-sha: ${HARNESS_BUILD_GIT_SHA:UNKNOWN}
+  retention:
+    enabled: ${HARNESS_RETENTION_ENABLED:false}
+    case-days: ${HARNESS_RETENTION_CASE_DAYS:180}
   llm:
+    allowed-hosts: ${HARNESS_LLM_ALLOWED_HOSTS:}
     default-endpoint: ${HARNESS_LLM_ENDPOINT:http://localhost:11434}
     default-model: ${HARNESS_LLM_MODEL:qwen2.5:7b}
     api-key: ${HARNESS_LLM_API_KEY:}

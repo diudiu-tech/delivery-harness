@@ -34,12 +34,20 @@ class ObserveAndEvalApiTest {
             {
               "primary_cause": "商家出餐慢",
               "secondary_causes": [],
-              "evidence_chain": [],
+              "evidence_chain": [{"fact":"骑手到店后等待28分钟","evidence_id":"timeline_v2","evidence_version":"2",
+                "field_path":"merchant_prep_seconds","observed_value":1680,"unit":"seconds"}],
               "applicable_rules": ["ANA-001"],
               "suggested_actions": [],
               "risk_notes": [],
               "confidence": "HIGH"
             }
+            """;
+
+    private static final String ON_TIME_ANSWER = """
+            {"primary_cause":"无异常","secondary_causes":[],
+             "evidence_chain":[{"fact":"订单没有超时","evidence_id":"timeline_v2","evidence_version":"2",
+               "field_path":"overtime_seconds","observed_value":0,"unit":"seconds"}],
+             "applicable_rules":["ANA-006"],"suggested_actions":[],"risk_notes":[],"confidence":"HIGH"}
             """;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -73,7 +81,7 @@ class ObserveAndEvalApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.traceId").value(traceId))
                 .andExpect(jsonPath("$.data.scenario").value("abnormal_order_analysis"))
-                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
                 .andExpect(jsonPath("$.data.spans").isNotEmpty())
                 .andExpect(jsonPath("$.data.spans[?(@.spanType == 'tool_call')]").isNotEmpty());
     }
@@ -115,7 +123,7 @@ class ObserveAndEvalApiTest {
     }
 
     @Test
-    void scoresAnEvaluationRunAgainstTheSeededCases() throws Exception {
+    void unsupportedAttributionRemainsCompletedButCannotEarnDecisionAccuracy() throws Exception {
         MvcResult run = mockMvc.perform(post("/api/v1/eval/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"caseIds\":[\"EC-001\"],\"modelVersion\":\"stub\"}"))
@@ -124,7 +132,8 @@ class ObserveAndEvalApiTest {
                 .andExpect(jsonPath("$.data.completedCases").value(1))
                 .andExpect(jsonPath("$.data.succeededCases").value(1))
                 .andExpect(jsonPath("$.data.failedCases").value(0))
-                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.degradedCases").value(1))
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
                 .andReturn();
 
         String runId = objectMapper.readTree(run.getResponse().getContentAsString())
@@ -133,30 +142,40 @@ class ObserveAndEvalApiTest {
         mockMvc.perform(get("/api/v1/eval/run/{runId}/results", runId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].caseId").value("EC-001"))
-                .andExpect(jsonPath("$.data[0].score.ruleAccuracy").value(1.0))
-                .andExpect(jsonPath("$.data[0].score.expertAlignment").value(1.0))
+                .andExpect(jsonPath("$.data[0].executionStatus").value("DEGRADED"))
+                .andExpect(jsonPath("$.data[0].actualOutput.model_adoptable").value(false))
+                .andExpect(jsonPath("$.data[0].score.ruleAccuracy").value(0.0))
+                .andExpect(jsonPath("$.data[0].score.expertAlignment").value(0.0))
                 .andExpect(jsonPath("$.data[0].score.toolExecutionAccuracy").value(1.0))
+                .andExpect(jsonPath("$.data[0].score.overallScore").value(1.0 / 3))
                 .andExpect(jsonPath("$.data[0].traceId").isNotEmpty());
     }
 
     @Test
-    void reportsFailedEvaluationCasesAndStillRecordsTheirTrace() throws Exception {
+    void modelFailureRetainsDeterministicFactsAndReportsDegradedEvaluation() throws Exception {
         stubLlmClient.failWith("connection refused");
 
         MvcResult run = mockMvc.perform(post("/api/v1/eval/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"caseIds\":[\"EC-001\"]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("FAILED"))
-                .andExpect(jsonPath("$.data.succeededCases").value(0))
-                .andExpect(jsonPath("$.data.failedCases").value(1))
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
+                .andExpect(jsonPath("$.data.completedCases").value(1))
+                .andExpect(jsonPath("$.data.succeededCases").value(1))
+                .andExpect(jsonPath("$.data.failedCases").value(0))
+                .andExpect(jsonPath("$.data.degradedCases").value(1))
                 .andReturn();
 
         String runId = objectMapper.readTree(run.getResponse().getContentAsString())
                 .path("data").path("runId").asText();
         MvcResult results = mockMvc.perform(get("/api/v1/eval/run/{runId}/results", runId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].errorMessage").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].executionStatus").value("DEGRADED"))
+                .andExpect(jsonPath("$.data[0].actualOutput.timeline.merchant_prep_minutes").value(28))
+                .andExpect(jsonPath("$.data[0].actualOutput.model_availability").value("UNAVAILABLE"))
+                .andExpect(jsonPath("$.data[0].score.ruleAccuracy").value(0.0))
+                .andExpect(jsonPath("$.data[0].score.expertAlignment").value(0.0))
+                .andExpect(jsonPath("$.data[0].score.toolExecutionAccuracy").value(1.0))
                 .andExpect(jsonPath("$.data[0].traceId").isNotEmpty())
                 .andReturn();
 
@@ -164,7 +183,28 @@ class ObserveAndEvalApiTest {
                 .path("data").get(0).path("traceId").asText();
         mockMvc.perform(get("/api/v1/observe/trace/{traceId}", traceId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("FAILED"));
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"));
+    }
+
+    @Test
+    void validatedOnTimeEvidenceEarnsExactScoresWithoutAnyDegradedCases() throws Exception {
+        stubLlmClient.respondWith(ON_TIME_ANSWER);
+        MvcResult run = mockMvc.perform(post("/api/v1/eval/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caseIds\":[\"EC-004\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.completedCases").value(1))
+                .andExpect(jsonPath("$.data.degradedCases").value(0))
+                .andReturn();
+        String runId = objectMapper.readTree(run.getResponse().getContentAsString()).path("data").path("runId").asText();
+        mockMvc.perform(get("/api/v1/eval/run/{runId}/results", runId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].actualOutput.model_adoptable").value(true))
+                .andExpect(jsonPath("$.data[0].score.ruleAccuracy").value(1.0))
+                .andExpect(jsonPath("$.data[0].score.expertAlignment").value(1.0))
+                .andExpect(jsonPath("$.data[0].score.toolExecutionAccuracy").value(1.0))
+                .andExpect(jsonPath("$.data[0].score.overallScore").value(1.0));
     }
 
     @Test

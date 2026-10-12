@@ -58,6 +58,31 @@ class WorkflowEngineTest {
     }
 
     @Test
+    void aggregatesFailedOptionalStepsWithoutAnExplicitDegradedFlag() {
+        engine.registerHandler("optional", (input, execution) -> {
+            execution.getSteps().add(WorkflowExecution.StepExecution.builder().status("FAILED").stepType("tool_call").build());
+            return Collections.singletonMap("timeline", "available");
+        });
+        assertEquals("DEGRADED", engine.execute("optional", Collections.emptyMap()).getStatus());
+    }
+
+    @Test
+    void retainsCompletedStepsAndEndTimeWhenRequiredDependencyThrows() {
+        engine.registerHandler("failure-context", (input, execution) -> {
+            execution.getSteps().add(WorkflowExecution.StepExecution.builder().status("SUCCESS").name("first").build());
+            execution.getSteps().add(WorkflowExecution.StepExecution.builder().status("FAILED").name("second").build());
+            throw new LlmException("model", "unavailable");
+        });
+        assertThrows(LlmException.class, () -> engine.execute("failure-context", Collections.emptyMap()));
+        WorkflowExecution failed = engine.takeFailedExecution();
+        assertEquals(2, failed.getSteps().size());
+        assertEquals("FAILED", failed.getStatus());
+        assertNotNull(failed.getFinishedAt());
+        assertNotNull(failed.getTotalDurationMs());
+        org.junit.jupiter.api.Assertions.assertNull(engine.takeFailedExecution());
+    }
+
+    @Test
     void propagatesDependencyFailuresForHttpStatusMapping() {
         engine.registerHandler("llm-failure", (input, execution) -> {
             throw new LlmException("example-model", "provider unavailable");

@@ -64,13 +64,14 @@ public class AgentOrchestrator {
             }
             return HarnessResponse.success(execution, traceId);
         } catch (HarnessException e) {
-            observeFailure(traceId, request, e);
-            metricsService.incrementCounter(metricName(request.getScenario(), "dependency_failure"));
+            WorkflowExecution failed = workflowEngine.takeFailedExecution();
+            if (failed == null) { observeFailure(traceId, request, e); } else { observe(traceId, request, failed); }
+            safeIncrement(metricName(request.getScenario(), "dependency_failure"));
             throw e;
         } catch (Exception e) {
             log.error("Agent processing failed: scenario={}, traceId={}", request.getScenario(), traceId, e);
             observeFailure(traceId, request, e);
-            metricsService.incrementCounter(metricName(request.getScenario(), "error"));
+            safeIncrement(metricName(request.getScenario(), "error"));
             return HarnessResponse.error(500, "Agent processing failed", traceId);
         } finally {
             if (ownsTrace) {
@@ -109,6 +110,11 @@ public class AgentOrchestrator {
         } catch (RuntimeException e) {
             log.warn("Failed to record trace or metrics for traceId={}: {}", traceId, e.getMessage());
         }
+    }
+
+    private void safeIncrement(String counter) {
+        try { metricsService.incrementCounter(counter); }
+        catch (RuntimeException failure) { log.warn("Metrics unavailable: {}", failure.getClass().getSimpleName()); }
     }
 
     private void observeFailure(String traceId, AgentRequest request, Exception failure) {

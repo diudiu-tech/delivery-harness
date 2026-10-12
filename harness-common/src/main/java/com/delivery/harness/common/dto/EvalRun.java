@@ -23,6 +23,8 @@ public class EvalRun {
     private Integer completedCases;
     private Integer succeededCases;
     private Integer failedCases;
+    /** Completed executions that retained results despite dependency or output-quality degradation. */
+    private Integer degradedCases;
     private LocalDateTime startedAt;
     private LocalDateTime finishedAt;
 }

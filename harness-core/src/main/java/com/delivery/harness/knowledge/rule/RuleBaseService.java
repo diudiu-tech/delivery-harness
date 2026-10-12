@@ -27,7 +27,8 @@ public class RuleBaseService {
         return ruleStore.values().stream()
                 .filter(r -> ruleType.equals(r.getRuleType()))
                 .filter(r -> !Boolean.FALSE.equals(r.getEnabled()))
-                .sorted(Comparator.<RuleInfo>comparingInt(r -> r.getPriority() == null ? 0 : r.getPriority()).reversed())
+                .sorted(Comparator.<RuleInfo>comparingInt(
+                        r -> r.getPriority() == null ? 0 : r.getPriority()).reversed())
                 .collect(Collectors.toList());
     }
 

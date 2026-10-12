@@ -97,7 +97,8 @@ public class CompensationRuleToolkit {
             case "DAMAGE_LEVEL" -> damageAmount(orderAmount, damageLevel, actions);
             default -> ZERO;
         };
-        boolean manualDamageReview = "DAMAGE_LEVEL".equals(amountType) && !("FULL".equals(damageLevel) || "PARTIAL".equals(damageLevel));
+        boolean manualDamageReview = "DAMAGE_LEVEL".equals(amountType)
+                && !("FULL".equals(damageLevel) || "PARTIAL".equals(damageLevel));
         return new Decision(ruleMetadata(rule), amount,
                 manualDamageReview ? "需人工判断" : asString(actions.get("method"), "需人工判断"),
                 asString(actions.get("confidence"), "LOW"),

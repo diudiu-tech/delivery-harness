@@ -38,7 +38,7 @@ class CompensationSuggestionApiTest {
     private static final String JUSTIFICATION = """
             {
               "reason": "到店等待时间显著高于其他各段，超时责任在商家侧",
-              "customer_message": "很抱歉本次配送延误，已按规则为您处理",
+              "customer_message": "很抱歉本次配送延误，建议按规则处理，等待人工审核确认",
               "risk_warnings": [],
               "escalate": false,
               "confidence": "HIGH"
@@ -76,7 +76,7 @@ class CompensationSuggestionApiTest {
         stubLlmClient.respondWith("""
                 {
                   "reason": "适用 COMP-001，赔付订单金额的50%，最高不超过20元",
-                  "customer_message": "很抱歉本次配送延误，已按规则为您处理",
+                  "customer_message": "很抱歉本次配送延误，建议按规则处理，等待人工审核确认",
                   "risk_warnings": [],
                   "escalate": false,
                   "confidence": "HIGH"

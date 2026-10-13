@@ -101,6 +101,7 @@ public class CompensationSuggestionWorkflow {
         ruleParams.put("complaint_type", complaintType);
         ruleParams.put("overtime_minutes", timeline.overtimeMinutes());
         ruleParams.put("order_amount", order.getOrderAmount());
+        ruleParams.put("refundable_balance", order.getRefundableBalance());
         if (damageLevel != null && !damageLevel.isBlank()) {
             ruleParams.put("damage_level", damageLevel);
         }

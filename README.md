@@ -92,6 +92,16 @@ missing is unknown, zero is a known zero, and invalid precision or excess over
 order amount is rejected. Local demo continues to use synthetic fixtures.
 `GET /api/v2/adapters/status` returns metadata without probing orders or secrets.
 
+### Cases, evidence and independent review
+
+V2 case queues apply status, exact order/assignee, risk, complaint, city and
+station filters in SQL before pagination. Material bodies remain separate from
+metadata. Typed bounded requests reject invalid input before writes.
+Case creators and decision authors cannot claim, approve or receive their own
+review; missing legacy authorship requires a fresh analysis. Export uses
+`POST /api/v2/cases/{id}/export`, records an audit receipt and executes no payment;
+GET returns 405. See [ADR-0007](docs/adr/0007-independent-case-and-decision-reviewers.md).
+
 ## Architecture
 
 ```mermaid

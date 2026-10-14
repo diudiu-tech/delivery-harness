@@ -227,6 +227,10 @@ public class PlatformStore {
     }
 
     public Page caseQueue(RecordScope actor, String cursor, int limit) {
+        return caseQueue(actor, CaseFilters.none(), cursor, limit);
+    }
+
+    public Page caseQueue(RecordScope actor, CaseFilters filters, String cursor, int limit) {
         validateLimit(limit, 100);
         return read(
                 tx -> {
@@ -237,6 +241,13 @@ public class PlatformStore {
                                             + " kind='case'");
                     appendScope(sql, values, "scope_city", actor.cityCodes());
                     appendScope(sql, values, "scope_station", actor.stationIds());
+                    appendFilter(sql, values, "record_status", filters.status());
+                    appendFilter(sql, values, "order_id", filters.orderId());
+                    appendFilter(sql, values, "risk_level", filters.riskLevel());
+                    appendFilter(sql, values, "complaint_type", filters.complaintType());
+                    appendFilter(sql, values, "assignee", filters.assignee());
+                    appendFilter(sql, values, "scope_city", filters.cityCode());
+                    appendFilter(sql, values, "scope_station", filters.stationId());
                     if (cursor != null && !cursor.isBlank()) {
                         Map<String, Object> after = decodeCursor(cursor);
                         if (!(after.get("priority") instanceof Number priority)) {
@@ -285,6 +296,14 @@ public class PlatformStore {
                     }
                     return new Page(List.copyOf(records), next);
                 });
+    }
+
+    private static void appendFilter(
+            StringBuilder sql, List<Object> values, String column, String value) {
+        if (!value.isEmpty()) {
+            sql.append(" AND ").append(column).append("=?");
+            values.add(value);
+        }
     }
 
     public Set<String> tenants() {
@@ -423,8 +442,8 @@ public class PlatformStore {
                     "INSERT INTO platform_records"
                         + " (tenant_id,kind,record_id,record_version,created_at,updated_at,payload,"
                         + " scope_city, scope_station, queue_priority, queue_due_at, case_id,"
-                        + " order_id, complaint_type, record_status, record_state) VALUES"
-                        + " (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)";
+                        + " order_id, complaint_type, record_status, record_state, risk_level,"
+                        + " assignee) VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, tenant);
                 statement.setString(2, kind);
@@ -469,19 +488,19 @@ public class PlatformStore {
             long nextVersion = Math.addExact(expectedVersion, 1);
             String sql =
                     "UPDATE platform_records SET"
-                        + " record_version=?,updated_at=?,payload=?,scope_city=?,scope_station=?,"
-                        + " queue_priority=?, queue_due_at=?, case_id=?, order_id=?,"
-                        + " complaint_type=?, record_status=?, record_state=? WHERE tenant_id=? AND"
-                        + " kind=? AND record_id=? AND record_version=?";
+                        + " record_version=?,updated_at=?,payload=?,scope_city=?,"
+                        + "scope_station=?,queue_priority=?,queue_due_at=?,case_id=?,order_id=?,"
+                        + "complaint_type=?,record_status=?,record_state=?,risk_level=?,assignee=?"
+                        + " WHERE tenant_id=? AND kind=? AND record_id=? AND record_version=?";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setLong(1, nextVersion);
                 statement.setObject(2, now());
                 statement.setString(3, JsonUtil.toJson(data));
                 project(statement, 4, tenant, kind, id, data);
-                statement.setString(13, tenant);
-                statement.setString(14, kind);
-                statement.setString(15, id);
-                statement.setLong(16, expectedVersion);
+                statement.setString(15, tenant);
+                statement.setString(16, kind);
+                statement.setString(17, id);
+                statement.setLong(18, expectedVersion);
                 if (statement.executeUpdate() != 1) {
                     throw PlatformException.conflict(
                             "Concurrent update; refresh the current version");
@@ -530,6 +549,8 @@ public class PlatformStore {
             statement.setString(first + 6, textOr(data, parent, "complaint_type"));
             statement.setString(first + 7, text(data, "status"));
             statement.setString(first + 8, text(data, "state"));
+            statement.setString(first + 9, text(data, "risk_level"));
+            statement.setString(first + 10, text(data, "assignee"));
         }
 
         public void putMaterialContent(
@@ -597,9 +618,10 @@ public class PlatformStore {
                 String resourceId,
                 Map<String, Object> details) {
             String sql =
-                    "INSERT INTO platform_audit_events (event_id, tenant_id, actor_id, action,"
-                        + " resource_id, created_at, payload, case_id, scope_city, scope_station)"
-                        + " VALUES (?,?,?,?,?,?,?,?,?,?)";
+                    "INSERT INTO platform_audit_events"
+                            + " (event_id,tenant_id,actor_id,action,resource_id,created_at,payload,"
+                            + "case_id,scope_city,scope_station)"
+                            + " VALUES (?,?,?,?,?,?,?,?,?,?)";
             List<Entity> targets =
                     select(
                             "SELECT * FROM platform_records WHERE tenant_id=? AND record_id=? LIMIT"

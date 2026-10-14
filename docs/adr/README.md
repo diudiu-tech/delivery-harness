@@ -18,6 +18,8 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 
 | [0009](0009-oidc-identities-and-local-demo-access.md) | Verified OIDC identities and explicit local demo access | Proposed |
 
+| [0007](0007-independent-case-and-decision-reviewers.md) | Independent case and decision reviewers | Proposed |
+
 ## When to write one
 
 Write an ADR when a reviewer would reasonably ask "why didn't you just…?".

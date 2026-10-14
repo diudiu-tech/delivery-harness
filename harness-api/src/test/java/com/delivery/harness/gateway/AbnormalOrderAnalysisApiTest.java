@@ -1,7 +1,15 @@
 package com.delivery.harness.gateway;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.delivery.harness.gateway.support.StubLlmClient;
 import com.delivery.harness.gateway.support.StubLlmClientConfig;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,32 +18,26 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.springframework.test.web.servlet.ResultActions;
 
 /**
  * End-to-end coverage for the abnormal-order workflow.
  *
- * <p>Before this existed, none of the 30 tests asserted anything about either
- * workflow's output. The suite covered text splitting, JSON extraction and
- * request validation — the periphery — and skipped the part that produces an
- * answer, because reaching it required a running model.
+ * <p>Before this existed, none of the 30 tests asserted anything about either workflow's output.
+ * The suite covered text splitting, JSON extraction and request validation — the periphery — and
+ * skipped the part that produces an answer, because reaching it required a running model.
  *
- * <p>The first test here is the important one. It is the regression guard for
- * the defect that made every other measurement meaningless: the pipeline used
- * to assemble byte-identical evidence for every order.
+ * <p>The first test here is the important one. It is the regression guard for the defect that made
+ * every other measurement meaningless: the pipeline used to assemble byte-identical evidence for
+ * every order.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import({StubLlmClientConfig.class})
 class AbnormalOrderAnalysisApiTest {
 
-    private static final String MERCHANT_SLOW_ANSWER = """
+    private static final String MERCHANT_SLOW_ANSWER =
+            """
             {
               "primary_cause": "商家出餐慢",
               "secondary_causes": [],
@@ -50,12 +52,14 @@ class AbnormalOrderAnalysisApiTest {
             }
             """;
 
-    private static final String ON_TIME_ANSWER = """
+    private static final String ON_TIME_ANSWER =
+            """
             {
               "primary_cause": "无异常",
               "secondary_causes": [],
               "evidence_chain": [
-                {"fact": "送达早于承诺时间", "evidence_id": "timeline_v2", "evidence_version": "2", "field_path": "overtime_seconds", "observed_value": 0, "unit": "seconds"}
+                {"fact": "送达早于承诺时间", "evidence_id": "timeline_v2", "evidence_version": "2",
+                 "field_path": "overtime_seconds", "observed_value": 0, "unit": "seconds"}
               ],
               "applicable_rules": ["ANA-006"],
               "suggested_actions": ["向用户说明实际未超时"],
@@ -64,11 +68,9 @@ class AbnormalOrderAnalysisApiTest {
             }
             """;
 
-    @Autowired
-    private MockMvc mockMvc;
+    @Autowired private MockMvc mockMvc;
 
-    @Autowired
-    private StubLlmClient stubLlmClient;
+    @Autowired private StubLlmClient stubLlmClient;
 
     @BeforeEach
     void resetStub() {
@@ -86,13 +88,17 @@ class AbnormalOrderAnalysisApiTest {
         String merchantSlowPrompt = stubLlmClient.userPrompts().get(0);
         String capacityShortPrompt = stubLlmClient.userPrompts().get(1);
 
-        assertNotEquals(merchantSlowPrompt, capacityShortPrompt,
+        assertNotEquals(
+                merchantSlowPrompt,
+                capacityShortPrompt,
                 "two different orders must not produce an identical prompt");
         assertTrue(merchantSlowPrompt.contains("TEST001"), "prompt should carry its own order id");
         assertTrue(capacityShortPrompt.contains("TEST002"), "prompt should carry its own order id");
-        assertTrue(merchantSlowPrompt.contains("\"S001\""),
+        assertTrue(
+                merchantSlowPrompt.contains("\"S001\""),
                 "capacity should be queried for the order's own station");
-        assertTrue(capacityShortPrompt.contains("\"S002\""),
+        assertTrue(
+                capacityShortPrompt.contains("\"S002\""),
                 "capacity should be queried for the order's own station");
     }
 
@@ -166,38 +172,44 @@ class AbnormalOrderAnalysisApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.output.model_output_parsed").value(false))
                 .andExpect(jsonPath("$.data.output.needs_human_review").value(true))
-                .andExpect(jsonPath("$.data.output.review_reasons[?(@ == 'model_output_unparseable')]")
-                        .isNotEmpty());
+                .andExpect(
+                        jsonPath("$.data.output.review_reasons[?(@ == 'model_output_unparseable')]")
+                                .isNotEmpty());
     }
 
     @Test
     void asksForReviewWhenTheModelDisagreesWithTheBaseline() throws Exception {
         // Baseline for TEST001 is 商家出餐慢; the model blames the weather.
-        stubLlmClient.respondWith("""
-                {
-                  "primary_cause": "天气异常",
-                  "secondary_causes": [],
-                  "evidence_chain": [{"fact":"骑手到店后等待28分钟","evidence_id":"timeline_v2","evidence_version":"2",
-                    "field_path":"merchant_prep_seconds","observed_value":1680,"unit":"seconds"}],
-                  "applicable_rules": ["ANA-003"],
-                  "suggested_actions": [],
-                  "risk_notes": [],
-                  "confidence": "HIGH"
-                }
-                """);
+        stubLlmClient.respondWith(
+                """
+{
+  "primary_cause": "天气异常",
+  "secondary_causes": [],
+  "evidence_chain": [{"fact":"骑手到店后等待28分钟","evidence_id":"timeline_v2","evidence_version":"2",
+    "field_path":"merchant_prep_seconds","observed_value":1680,"unit":"seconds"}],
+  "applicable_rules": ["ANA-003"],
+  "suggested_actions": [],
+  "risk_notes": [],
+  "confidence": "HIGH"
+}
+""");
 
         analyze("TEST001")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.output.agrees_with_baseline").value(false))
                 .andExpect(jsonPath("$.data.output.needs_human_review").value(true))
-                .andExpect(jsonPath("$.data.output.review_reasons"
-                        + "[?(@ == 'disagrees_with_deterministic_baseline')]").isNotEmpty());
+                .andExpect(
+                        jsonPath(
+                                        "$.data.output.review_reasons[?(@ =="
+                                            + " 'disagrees_with_deterministic_baseline')]")
+                                .isNotEmpty());
     }
 
     @Test
     void reportsAGuardrailFailureWithoutHidingTheResult() throws Exception {
         // No primary_cause and a promise-like phrase: both guardrail checks fail.
-        stubLlmClient.respondWith("""
+        stubLlmClient.respondWith(
+                """
                 {"summary": "我们承诺尽快处理"}
                 """);
 
@@ -205,12 +217,16 @@ class AbnormalOrderAnalysisApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.output.guardrail_passed").value(false))
                 .andExpect(jsonPath("$.data.output.needs_human_review").value(true))
-                .andExpect(jsonPath("$.data.steps[?(@.stepType == 'guardrail' "
-                        + "&& @.status == 'FAILED')]").isNotEmpty());
+                .andExpect(
+                        jsonPath(
+                                        "$.data.steps[?(@.stepType == 'guardrail' "
+                                                + "&& @.status == 'FAILED')]")
+                                .isNotEmpty());
     }
 
     @Test
-    void returnsDeterministicEvidenceAndFailedModelStepWhenTheModelIsUnreachable() throws Exception {
+    void returnsDeterministicEvidenceAndFailedModelStepWhenTheModelIsUnreachable()
+            throws Exception {
         stubLlmClient.failWith("connection refused");
 
         analyze("TEST001")
@@ -218,23 +234,33 @@ class AbnormalOrderAnalysisApiTest {
                 .andExpect(jsonPath("$.data.status").value("DEGRADED"))
                 .andExpect(jsonPath("$.data.output.timeline.merchant_prep_minutes").value(28))
                 .andExpect(jsonPath("$.data.output.model_availability").value("UNAVAILABLE"))
-                .andExpect(jsonPath("$.data.steps[?(@.stepType == 'llm_call' && @.status == 'FAILED' && @.errorMessage != null)]").isNotEmpty());
+                .andExpect(
+                        jsonPath(
+                                        "$.data.steps[?(@.stepType == 'llm_call' && @.status =="
+                                            + " 'FAILED' && @.errorMessage != null)]")
+                                .isNotEmpty());
     }
 
     @Test
     void rejectsWrongCitationValuesWhileKeepingTheParsedModelAvailableForReview() throws Exception {
-        stubLlmClient.respondWith(ON_TIME_ANSWER.replace("\"observed_value\": 0", "\"observed_value\": 1"));
+        stubLlmClient.respondWith(
+                ON_TIME_ANSWER.replace("\"observed_value\": 0", "\"observed_value\": 1"));
         analyze("TEST005")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.output.model_output_parsed").value(true))
                 .andExpect(jsonPath("$.data.output.model_adoptable").value(false))
                 .andExpect(jsonPath("$.data.output.customer_message_status").value("BLOCKED"))
-                .andExpect(jsonPath("$.data.output.validation_errors[?(@ == 'evidence_value_mismatch:timeline_v2:overtime_seconds')]").isNotEmpty());
+                .andExpect(
+                        jsonPath(
+                                        "$.data.output.validation_errors[?(@ =="
+                                            + " 'evidence_value_mismatch:timeline_v2:overtime_seconds')]")
+                                .isNotEmpty());
     }
 
-    private org.springframework.test.web.servlet.ResultActions analyze(String orderId) throws Exception {
-        return mockMvc.perform(post("/api/v1/analyze/abnormal-order")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"order_id\":\"" + orderId + "\"}"));
+    private ResultActions analyze(String orderId) throws Exception {
+        return mockMvc.perform(
+                post("/api/v1/analyze/abnormal-order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"order_id\":\"" + orderId + "\"}"));
     }
 }

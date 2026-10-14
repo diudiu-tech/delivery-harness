@@ -52,6 +52,14 @@ pilot 需要显式设置 `HARNESS_LLM_ALLOWED_HOSTS` 并使用 HTTPS（测试可
 允许回环 HTTP），不跟随重定向。代码约束保持 system 优先级，可配任务提示词
 使用更低优先级。
 
+### 索引存储基础
+
+平台记录和审计使用 JDBC 与 core 模块内的 Flyway 迁移；附件正文与索引元数据
+分开存放。读取不提交事务，写入、乐观锁与审计共用事务。审计使用时间戳加事件
+ID 排序并在 SQL 中按授权范围分页。默认 H2 仅为内存演示；持久化部署需配置
+`HARNESS_DATABASE_URL`、用户名和密码。已提供 PostgreSQL 驱动，但 H2 迁移
+测试不能证明真实 PostgreSQL 部署已验收。见 [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md)。
+
 ## 架构
 
 ```mermaid

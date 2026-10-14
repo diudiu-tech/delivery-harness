@@ -14,6 +14,8 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 | [0004](0004-three-maven-modules-instead-of-nine.md) | Three Maven modules instead of nine | Accepted |
 | [0005](0005-trusted-workflow-output-contract.md) | Keep decision authority in trusted workflow inputs and outputs | Proposed |
 
+| [0006](0006-indexed-metadata-and-separated-material-content.md) | Indexed metadata, material bodies and timestamp audit cursors | Proposed |
+
 ## When to write one
 
 Write an ADR when a reviewer would reasonably ask "why didn't you just…?".

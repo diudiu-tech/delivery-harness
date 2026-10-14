@@ -57,6 +57,17 @@ Pilot requires an explicit `HARNESS_LLM_ALLOWED_HOSTS` allowlist and HTTPS
 (explicit loopback HTTP is allowed for tests). Redirects are rejected. Code-owned
 constraints remain system messages; configurable task prompts have lower priority.
 
+### Indexed storage foundation
+
+Platform records and audit events use JDBC and core-owned Flyway migrations.
+Material bodies are separated from indexed metadata. Read helpers do not commit;
+writes and audit events share one transaction with optimistic version checks.
+Audit ordering uses timestamps and event IDs, with scoped SQL pagination.
+The default H2 database is an in-memory demonstration; configure
+`HARNESS_DATABASE_URL`, username and password for a durable deployment.
+PostgreSQL drivers are included, but H2 migration tests do not certify a real
+PostgreSQL deployment. See [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md).
+
 ## Architecture
 
 ```mermaid

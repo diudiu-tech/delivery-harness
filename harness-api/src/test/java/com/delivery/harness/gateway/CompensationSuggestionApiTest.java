@@ -32,16 +32,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(StubLlmClientConfig.class)
+@Import({StubLlmClientConfig.class})
 class CompensationSuggestionApiTest {
 
     private static final String JUSTIFICATION = """
             {
-              "reason": "到店等待时间显著高于其他各段，超时责任在商家侧",
-              "customer_message": "很抱歉本次配送延误，建议按规则处理，等待人工审核确认",
+              "reason": "适用当前赔付规则，建议提供优惠券",
+              "customer_message": "建议按规则提供优惠券，等待人工审核确认",
               "risk_warnings": [],
               "escalate": false,
-              "confidence": "HIGH"
+              "confidence": "HIGH",
+              "applicable_rules": ["COMP-002"],
+              "evidence_chain": [{"fact":"规则金额5元","evidence_id":"decision","evidence_version":"1",
+                 "field_path":"authoritative_amount","observed_value":5,"unit":"CNY"}]
             }
             """;
 
@@ -66,6 +69,8 @@ class CompensationSuggestionApiTest {
                 .andExpect(jsonPath("$.data.output.timeline.overtime_minutes").value(35))
                 .andExpect(jsonPath("$.data.output.matched_rules[0].rule_id").value("COMP-001"))
                 .andExpect(jsonPath("$.data.output.suggested_amount").value(20.00))
+                .andExpect(jsonPath("$.data.output.authoritative_amount").value(20.00))
+                .andExpect(jsonPath("$.data.output.decision_status").value("DETERMINED"))
                 .andExpect(jsonPath("$.data.output.should_compensate").value(true))
                 .andExpect(jsonPath("$.data.output.amount_decided_by").value("rule_engine"))
                 .andExpect(jsonPath("$.data.output.approval_required").value(true));
@@ -76,7 +81,7 @@ class CompensationSuggestionApiTest {
         stubLlmClient.respondWith("""
                 {
                   "reason": "适用 COMP-001，赔付订单金额的50%，最高不超过20元",
-                  "customer_message": "很抱歉本次配送延误，建议按规则处理，等待人工审核确认",
+                  "customer_message": "建议按规则处理，等待人工审核确认",
                   "risk_warnings": [],
                   "escalate": false,
                   "confidence": "HIGH"
@@ -106,7 +111,9 @@ class CompensationSuggestionApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.output.timeline.overtime_minutes").value(0))
                 .andExpect(jsonPath("$.data.output.should_compensate").value(false))
-                .andExpect(jsonPath("$.data.output.suggested_amount").value(0.0));
+                .andExpect(jsonPath("$.data.output.suggested_amount").value(0.0))
+                .andExpect(jsonPath("$.data.output.authoritative_amount").value(0.0))
+                .andExpect(jsonPath("$.data.output.decision_status").value("DETERMINED"));
     }
 
     @Test
@@ -182,6 +189,9 @@ class CompensationSuggestionApiTest {
         compensateDamage("TEST003", "DAMAGED", "FULL")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.output.suggested_amount").value(64.00))
+                .andExpect(jsonPath("$.data.output.authoritative_amount").doesNotExist())
+                .andExpect(jsonPath("$.data.output.decision_status").value("INSUFFICIENT_EVIDENCE"))
+                .andExpect(jsonPath("$.data.output.customer_message_status").value("BLOCKED"))
                 .andExpect(jsonPath("$.data.output.approval_required").value(true));
     }
 
@@ -192,6 +202,54 @@ class CompensationSuggestionApiTest {
                         .content("{\"order_id\":\"TEST004\",\"complaint_type\":\"NOT_A_TYPE\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void blocksUnsupportedComplaintPolicyWithoutClaimingAZeroPayoutDecision() throws Exception {
+        compensate("TEST004", "MISSING_ITEM")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.decision_status").value("OUT_OF_SCOPE"))
+                .andExpect(jsonPath("$.data.output.authoritative_amount").doesNotExist())
+                .andExpect(jsonPath("$.data.output.amount_is_candidate").value(true))
+                .andExpect(jsonPath("$.data.output.approval_required").value(true));
+    }
+
+    @Test
+    void validatesTheExactPolicyAmountEvidenceBeforeAllowingTheCustomerDraft() throws Exception {
+        stubLlmClient.respondWith("""
+                {"reason":"适用COMP-002","customer_message":"按规则建议提供5元优惠券，等待审核确认",
+                 "risk_warnings":[],"escalate":false,"confidence":"HIGH","applicable_rules":["COMP-002"],
+                 "evidence_chain":[{"fact":"规则金额5元","evidence_id":"decision","evidence_version":"1",
+                 "field_path":"authoritative_amount","observed_value":5,"unit":"CNY"}]}
+                """);
+        compensate("TEST004", "OVERTIME")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.authoritative_amount").value(5.00))
+                .andExpect(jsonPath("$.data.output.model_adoptable").value(true))
+                .andExpect(jsonPath("$.data.output.customer_message_status").value("VALIDATED"))
+                .andExpect(jsonPath("$.data.output.model_customer_message_status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.output.verified_customer_message_status").value("VALIDATED"))
+                .andExpect(jsonPath("$.data.output.customer_message_source").value("DETERMINISTIC_TEMPLATE"))
+                .andExpect(jsonPath("$.data.output.verified_customer_message").value(
+                        "根据本次订单事实与规则，当前建议为优惠券，金额为 CNY 5.00。该建议须经人工审核确认，尚未执行。"));
+    }
+
+    @Test
+    void fakeRuleTextAndPaymentClaimsCannotProduceAnAdoptedModelMessage() throws Exception {
+        stubLlmClient.respondWith("""
+                {"reason":"适用虚构规则","customer_message":"退款已完成，赔付五百元",
+                 "risk_warnings":[],"escalate":false,"confidence":"HIGH","applicable_rules":"FAKE-UNPUBLISHED",
+                 "evidence_chain":[{"fact":"规则金额5元","evidence_id":"decision","evidence_version":"1",
+                 "field_path":"authoritative_amount","observed_value":5,"unit":"CNY"}]}
+                """);
+        compensate("TEST004", "OVERTIME")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.authoritative_amount").value(5.00))
+                .andExpect(jsonPath("$.data.output.model_adoptable").value(false))
+                .andExpect(jsonPath("$.data.output.model_customer_message_status").value("BLOCKED"))
+                .andExpect(jsonPath("$.data.output.guardrail_passed").value(false))
+                .andExpect(jsonPath("$.data.output.verified_customer_message").value(
+                        "根据本次订单事实与规则，当前建议为优惠券，金额为 CNY 5.00。该建议须经人工审核确认，尚未执行。"));
     }
 
     private ResultActions compensate(String orderId, String complaintType) throws Exception {

@@ -115,7 +115,7 @@ class ObserveAndEvalApiTest {
     }
 
     @Test
-    void scoresAnEvaluationRunAgainstTheSeededCases() throws Exception {
+    void invalidModelReferencesCannotEarnRuleAccuracy() throws Exception {
         MvcResult run = mockMvc.perform(post("/api/v1/eval/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"caseIds\":[\"EC-001\"],\"modelVersion\":\"stub\"}"))
@@ -133,7 +133,7 @@ class ObserveAndEvalApiTest {
         mockMvc.perform(get("/api/v1/eval/run/{runId}/results", runId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].caseId").value("EC-001"))
-                .andExpect(jsonPath("$.data[0].score.ruleAccuracy").value(1.0))
+                .andExpect(jsonPath("$.data[0].score.ruleAccuracy").value(0.0))
                 .andExpect(jsonPath("$.data[0].score.expertAlignment").value(1.0))
                 .andExpect(jsonPath("$.data[0].score.toolExecutionAccuracy").value(1.0))
                 .andExpect(jsonPath("$.data[0].traceId").isNotEmpty());

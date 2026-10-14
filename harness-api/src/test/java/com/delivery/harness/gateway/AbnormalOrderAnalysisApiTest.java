@@ -33,7 +33,7 @@ import org.springframework.test.web.servlet.ResultActions;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import({StubLlmClientConfig.class})
+@Import({StubLlmClientConfig.class, DemoApiTestSupport.class})
 class AbnormalOrderAnalysisApiTest {
 
     private static final String MERCHANT_SLOW_ANSWER =

@@ -25,7 +25,7 @@
 - 可选依赖不可用但确定性结果仍可返回时，工作流状态为 `DEGRADED`；受影响步骤会记录为失败，避免与完整成功混淆。
 - 本地 Ollama 配置、回归测试、Maven Wrapper 和 GitHub Actions CI。
 
-以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
+以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、经生产验证的持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
 
 ### 可信决策语义（破坏性变更）
 
@@ -252,7 +252,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 - 评测运行中的 `modelVersion` 与 `promptVersion` 当前只是记录用的元数据，不会切换运行时模型或修改工作流 Prompt；比较运行时请通过部署配置固定它们。
 - `needs_human_review` 与 `approval_required` 由 Guardrail 结果、解析是否成功、模型置信度和是否与基线一致推导得出。这是「如实报告」而非「授权」：系统不执行任何付款。
 - Guardrail 会在工作流步骤和最终输出中返回通过/失败，但不能替代人工复核。
-- 当前没有持久化层。此前版本附带过一份从不执行的 PostgreSQL Schema，已删除，以免让读者误以为持久化已存在。
+- JDBC/Flyway 已提供平台存储基础；旧版工作流知识、评测及 Trace 仍在内存。配置 PostgreSQL 后仍需单独验证迁移与恢复。
 
 ## Roadmap
 

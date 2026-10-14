@@ -25,7 +25,7 @@ An AI harness reference implementation for on-demand delivery operations. It com
 - Completed workflows with an unavailable optional dependency are reported as `DEGRADED`; the deterministic result remains available and the affected step is recorded as failed.
 - A local Ollama profile, regression tests, Maven Wrapper, and GitHub Actions CI.
 
-The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, durable persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
+The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, production-validated persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
 
 ### Trusted decision semantics (breaking changes)
 
@@ -260,7 +260,7 @@ Unit and API regression tests cover both workflows. Both workflows are covered e
 - `modelVersion` and `promptVersion` on an evaluation run are recorded metadata labels; they do not yet select a model or mutate the workflow prompt. Pin those inputs through deployment configuration when comparing runs.
 - `needs_human_review` and `approval_required` are derived from guardrail outcome, parse success, model confidence and baseline agreement. This is reporting, not authority: nothing here executes a payment.
 - Guardrails report pass/fail in workflow steps and the final output, but do not replace human review.
-- There is no persistence layer. A prior revision shipped an unexecuted PostgreSQL schema; it was removed rather than left to imply otherwise.
+- JDBC/Flyway provides the platform storage foundation. Legacy workflow knowledge, evaluation and trace stores still use memory; a configured PostgreSQL deployment requires its own migration and restore validation.
 
 ## Roadmap
 

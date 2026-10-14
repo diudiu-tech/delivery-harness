@@ -69,10 +69,11 @@ class HttpLlmClientTest {
                     }
                 });
         server.start();
+        HttpLlmClient boundedClient = client(server);
         try (RuntimeBinding ignored = binding(1, 2)) {
             assertTimeout(
                     Duration.ofMillis(2500),
-                    () -> assertThrows(SocketTimeoutException.class, () -> chat(client(server))));
+                    () -> assertThrows(SocketTimeoutException.class, () -> chat(boundedClient)));
             assertEquals(1, requests.get());
         } finally {
             server.stop(0);

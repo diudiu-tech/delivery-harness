@@ -35,6 +35,10 @@ harness:
       issuer: ${HARNESS_OIDC_ISSUER:}
       audience: ${HARNESS_OIDC_AUDIENCE:}
       jwk-set-uri: ${HARNESS_OIDC_JWK_SET_URI:}
+  adapter:
+    order-endpoint: ${HARNESS_ORDER_ENDPOINT:}
+    allowed-hosts: ${HARNESS_ORDER_ALLOWED_HOSTS:}
+    token: ${HARNESS_ORDER_TOKEN:}
   review:
     approval-threshold: ${HARNESS_REVIEW_APPROVAL_THRESHOLD:10.00}
   llm:

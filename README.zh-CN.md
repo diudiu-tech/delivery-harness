@@ -74,6 +74,14 @@ pilot 验证 OIDC JWT 签名、issuer、audience、租户、角色和数据范�
 本地签名夹具测试不能代替真实组织 IdP 与授权验收。见
 [ADR-0009](docs/adr/0009-oidc-identities-and-local-demo-access.md)。
 
+### 只读订单源
+
+v2 可通过显式 endpoint/host 配置接入 pilot 只读源，10 秒截止时间覆盖响应头
+和响应体，接收上限为 1 MB；不重定向，也不在失败时回退合成订单。可退余额
+缺失表示未知，零表示明确为零；分精度非法或超过订单金额会拒绝。
+demo 继续使用合成夹具。`GET /api/v2/adapters/status` 仅返回源状态元数据，
+不查询订单，不返回地址凭证。
+
 ## 架构
 
 ```mermaid

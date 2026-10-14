@@ -1,18 +1,21 @@
 package com.delivery.harness.agent.analysis;
 
-import com.delivery.harness.common.dto.OrderInfo;
-import org.junit.jupiter.api.Test;
-
-import java.time.LocalDateTime;
-
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.delivery.harness.common.dto.OrderInfo;
+
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
 /**
- * The deterministic baseline the model has to beat. If this is wrong, every
- * attribution downstream is measured against the wrong yardstick.
+ * The deterministic baseline the model has to beat. If this is wrong, every attribution downstream
+ * is measured against the wrong yardstick.
  */
 class OrderTimelineTest {
 
@@ -36,14 +39,22 @@ class OrderTimelineTest {
     @Test
     void attributesToTheLongestLeg() {
         assertAll(
-                () -> assertEquals(OrderTimeline.LEG_MERCHANT_PREP,
-                        OrderTimeline.of(order(3, 7, 28, 20, 40)).dominantLeg()),
-                () -> assertEquals(OrderTimeline.LEG_DISPATCH_WAIT,
-                        OrderTimeline.of(order(22, 8, 6, 20, 40)).dominantLeg()),
-                () -> assertEquals(OrderTimeline.LEG_ON_ROAD,
-                        OrderTimeline.of(order(4, 9, 8, 44, 40)).dominantLeg()),
-                () -> assertEquals(OrderTimeline.LEG_TO_SHOP,
-                        OrderTimeline.of(order(4, 30, 8, 20, 40)).dominantLeg()));
+                () ->
+                        assertEquals(
+                                OrderTimeline.LEG_MERCHANT_PREP,
+                                OrderTimeline.of(order(3, 7, 28, 20, 40)).dominantLeg()),
+                () ->
+                        assertEquals(
+                                OrderTimeline.LEG_DISPATCH_WAIT,
+                                OrderTimeline.of(order(22, 8, 6, 20, 40)).dominantLeg()),
+                () ->
+                        assertEquals(
+                                OrderTimeline.LEG_ON_ROAD,
+                                OrderTimeline.of(order(4, 9, 8, 44, 40)).dominantLeg()),
+                () ->
+                        assertEquals(
+                                OrderTimeline.LEG_TO_SHOP,
+                                OrderTimeline.of(order(4, 30, 8, 20, 40)).dominantLeg()));
     }
 
     @Test
@@ -69,19 +80,22 @@ class OrderTimelineTest {
 
     @Test
     void degradesToZeroOnMissingTimestampsAndSaysSo() {
-        OrderInfo partial = OrderInfo.builder()
-                .orderId("PARTIAL")
-                .createTime(CREATED)
-                .deliveryTime(CREATED.plusMinutes(50))
-                .build();
+        OrderInfo partial =
+                OrderInfo.builder()
+                        .orderId("PARTIAL")
+                        .createTime(CREATED)
+                        .deliveryTime(CREATED.plusMinutes(50))
+                        .build();
 
         OrderTimeline timeline = OrderTimeline.of(partial);
 
         assertAll(
                 () -> assertEquals(50, timeline.actualMinutes()),
                 () -> assertEquals(0, timeline.merchantPrepMinutes()),
-                () -> assertFalse(timeline.complete(),
-                        "an incomplete timeline must be visible, not silently zero"));
+                () ->
+                        assertFalse(
+                                timeline.complete(),
+                                "an incomplete timeline must be visible, not silently zero"));
     }
 
     @Test
@@ -95,6 +109,53 @@ class OrderTimelineTest {
     @Test
     void exposesEveryLegForPromptsAndScoring() {
         assertEquals(10, OrderTimeline.of(order(3, 7, 28, 20, 40)).asMap().size());
+    }
+
+    @Test
+    void unknownPromiseRetainsNullTrustedValuesAndDoesNotClaimOnTime() {
+        OrderInfo source = order(3, 7, 28, 20, 40);
+        source.setExpectedDeliveryTime(null);
+        OrderTimeline timeline = OrderTimeline.of(source);
+        assertEquals("UNKNOWN", timeline.overtimeStatus());
+        org.junit.jupiter.api.Assertions.assertNull(
+                timeline.asTrustedMap().get("promised_seconds"));
+        org.junit.jupiter.api.Assertions.assertNull(
+                timeline.asTrustedMap().get("overtime_seconds"));
+        assertFalse(timeline.complete());
+    }
+
+    @Test
+    void allPresentButReversedTimestampsRemainInvalidAndRawDataIsRetained() {
+        OrderInfo source = order(3, 7, 28, 20, 40);
+        source.setPickupTime(source.getArriveShopTime().minusSeconds(1));
+        OrderTimeline timeline = OrderTimeline.of(source);
+        assertFalse(timeline.complete());
+        assertEquals("INVALID", timeline.qualityStatus());
+        org.junit.jupiter.api.Assertions.assertNull(
+                timeline.asTrustedMap().get("merchant_prep_seconds"));
+        assertEquals(
+                source.getPickupTime(),
+                ((Map<?, ?>) timeline.asTrustedMap().get("raw_timestamps")).get("pickup_time"));
+    }
+
+    @Test
+    void missingStageDoesNotSuppressKnownOvertimeAndSecondsRemainExact() {
+        OrderInfo source = order(3, 7, 28, 20, 40);
+        source.setArriveShopTime(null);
+        source.setDeliveryTime(source.getExpectedDeliveryTime().plusSeconds(1));
+        OrderTimeline timeline = OrderTimeline.of(source);
+        assertEquals("LATE", timeline.overtimeStatus());
+        assertEquals(1L, timeline.overtimeSeconds());
+        assertFalse(timeline.complete());
+    }
+
+    @Test
+    void cancellationAndTiedStagesHaveExplicitSemantics() {
+        OrderInfo cancelled = order(3, 7, 28, 20, 40);
+        cancelled.setStatus("CANCELLED");
+        assertEquals("NOT_APPLICABLE", OrderTimeline.of(cancelled).overtimeStatus());
+        OrderTimeline tied = OrderTimeline.of(order(5, 5, 20, 20, 40));
+        assertEquals(List.of("MERCHANT_PREP", "ON_ROAD"), tied.asTrustedMap().get("dominant_legs"));
     }
 
     private static OrderInfo order(int accept, int toShop, int prep, int onRoad, int promised) {

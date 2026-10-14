@@ -6,16 +6,21 @@ import com.delivery.harness.knowledge.casemgmt.CaseBaseService;
 import com.delivery.harness.knowledge.ingestion.KnowledgeChunk;
 import com.delivery.harness.knowledge.ingestion.KnowledgeChunkRepository;
 import com.delivery.harness.knowledge.rule.RuleBaseService;
+import com.delivery.harness.runtime.RuntimeBinding;
+import com.delivery.harness.runtime.RuntimeData;
+
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -23,6 +28,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -30,23 +36,20 @@ import java.util.stream.Collectors;
 /**
  * Lexical retrieval over the in-memory rule, document and case stores.
  *
- * <p>Scoring is token overlap: the query is split into terms and an item's
- * score is the fraction of terms it contains, with a small weight per source
- * type to break ties. It is not semantic search, and it is not pretending to
- * be — {@code VectorSearchService} was removed precisely because it implied
- * otherwise.
+ * <p>Scoring is token overlap: the query is split into terms and an item's score is the fraction of
+ * terms it contains, with a small weight per source type to break ties. It is not semantic search,
+ * and it is not pretending to be — {@code VectorSearchService} was removed precisely because it
+ * implied otherwise.
  *
- * <p>What this replaces mattered more than what it is. Previously every rule
- * scored a constant 0.8, every document 0.6 and every case 0.5, so sorting by
- * score only ever produced "rules, then documents, then cases" and the score
- * on a citation carried no information. Rules were matched by testing whether
- * the entire query string appeared inside the rule text, which fails for any
- * multi-term query; cases ignored the query completely and were returned by
- * scenario alone.
+ * <p>What this replaces mattered more than what it is. Previously every rule scored a constant 0.8,
+ * every document 0.6 and every case 0.5, so sorting by score only ever produced "rules, then
+ * documents, then cases" and the score on a citation carried no information. Rules were matched by
+ * testing whether the entire query string appeared inside the rule text, which fails for any
+ * multi-term query; cases ignored the query completely and were returned by scenario alone.
  *
- * <p>At this corpus size — a policy set of roughly a dozen rules — token
- * overlap is sufficient and embeddings would be unjustifiable. See
- * {@code docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md}.
+ * <p>At this corpus size — a policy set of roughly a dozen rules — token overlap is sufficient and
+ * embeddings would be unjustifiable. See {@code
+ * docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md}.
  */
 @Slf4j
 @Service
@@ -58,6 +61,7 @@ public class RetrievalService {
 
     /** Tie-breakers only; they never let an unmatched item outrank a matched one. */
     private static final double RULE_WEIGHT = 1.00;
+
     private static final double CASE_WEIGHT = 0.95;
     private static final double DOCUMENT_WEIGHT = 0.90;
 
@@ -71,61 +75,140 @@ public class RetrievalService {
         List<RetrievalItem> items = new ArrayList<>();
 
         if (wants(request, "rule")) {
-            for (RuleInfo rule : ruleBaseService.findAll()) {
+            List<RuleInfo> applicable = new ArrayList<>();
+            if (!"compensation_suggestion".equals(request.getScenario())) {
+                applicable.addAll(ruleBaseService.findByTypeAt("analysis", RuntimeBinding.asOf()));
+            }
+            if (!"abnormal_order_analysis".equals(request.getScenario())) {
+                applicable.addAll(
+                        ruleBaseService.findByTypeAt("compensation", RuntimeBinding.asOf()));
+            }
+            for (RuleInfo rule : applicable) {
                 if (!Boolean.FALSE.equals(rule.getEnabled())) {
-                    double overlap = overlap(terms, rule.getRuleName(), rule.getContent(),
-                            rule.getCategory(), joinTags(rule.getTags()));
+                    double overlap =
+                            request.getQuery().equalsIgnoreCase(rule.getRuleId())
+                                    ? 2d
+                                    : overlap(
+                                            terms,
+                                            rule.getRuleId(),
+                                            rule.getRuleName(),
+                                            rule.getContent(),
+                                            rule.getCategory(),
+                                            joinTags(rule.getTags()));
                     if (overlap > 0) {
-                        items.add(RetrievalItem.builder()
-                                .sourceType("rule")
-                                .sourceId(rule.getRuleId())
-                                .title(rule.getRuleName())
-                                .content(rule.getContent())
-                                .score(round(overlap * RULE_WEIGHT))
-                                .build());
+                        items.add(
+                                RetrievalItem.builder()
+                                        .sourceType("rule")
+                                        .sourceId(rule.getRuleId())
+                                        .title(rule.getRuleName())
+                                        .content(rule.getContent())
+                                        .score(round(overlap * RULE_WEIGHT))
+                                        .versionId(
+                                                RuntimeBinding.current() == null
+                                                        ? rule.getVersion()
+                                                        : RuntimeBinding.policyVersion())
+                                        .citationId(
+                                                RuntimeBinding.current() == null
+                                                        ? rule.getRuleId() + "@" + rule.getVersion()
+                                                        : RuntimeBinding.policyVersion()
+                                                                + ":"
+                                                                + rule.getRuleId())
+                                        .contentHash(RuntimeData.hash(rule.getContent()))
+                                        .build());
                     }
                 }
             }
         }
 
-        if (wants(request, "case")) {
+        if (wants(request, "case") && RuntimeBinding.current() == null) {
             for (CaseInfo caseInfo : casesInScope(request)) {
-                double overlap = overlap(terms, caseInfo.getTitle(), caseInfo.getSummary(),
-                        caseInfo.getExpertAnswer(), joinTags(caseInfo.getTags()));
+                double overlap =
+                        overlap(
+                                terms,
+                                caseInfo.getTitle(),
+                                caseInfo.getSummary(),
+                                caseInfo.getExpertAnswer(),
+                                joinTags(caseInfo.getTags()));
                 if (overlap > 0) {
-                    items.add(RetrievalItem.builder()
-                            .sourceType("case")
-                            .sourceId(caseInfo.getCaseId())
-                            .title(caseInfo.getTitle())
-                            .content(caseInfo.getSummary())
-                            .score(round(overlap * CASE_WEIGHT))
-                            .build());
+                    items.add(
+                            RetrievalItem.builder()
+                                    .sourceType("case")
+                                    .sourceId(caseInfo.getCaseId())
+                                    .title(caseInfo.getTitle())
+                                    .content(caseInfo.getSummary())
+                                    .score(round(overlap * CASE_WEIGHT))
+                                    .build());
                 }
             }
         }
 
-        if (wants(request, "document")) {
+        if (wants(request, "document") && RuntimeBinding.current() == null) {
             for (KnowledgeChunk chunk : chunkRepository.findAll()) {
                 double overlap = overlap(terms, chunk.getContent());
                 if (overlap > 0) {
-                    items.add(RetrievalItem.builder()
-                            .sourceType("document")
-                            .sourceId(chunk.getDocumentId())
-                            .title("chunk-" + chunk.getChunkIndex())
-                            .content(chunk.getContent())
-                            .score(round(overlap * DOCUMENT_WEIGHT))
-                            .build());
+                    items.add(
+                            RetrievalItem.builder()
+                                    .sourceType("document")
+                                    .sourceId(chunk.getDocumentId())
+                                    .title("chunk-" + chunk.getChunkIndex())
+                                    .content(chunk.getContent())
+                                    .score(round(overlap * DOCUMENT_WEIGHT))
+                                    .build());
+                }
+            }
+        }
+        if (wants(request, "document") && RuntimeBinding.current() != null) {
+            RuntimeBinding.Snapshot runtime = RuntimeBinding.current();
+            String city = runtime.order() == null ? "" : runtime.order().getCityCode();
+            String station = runtime.order() == null ? "" : runtime.order().getStationId();
+            for (Map<String, Object> document : runtime.knowledge()) {
+                if (!RuntimeData.applicable(document, city, station, RuntimeBinding.asOf())) {
+                    continue;
+                }
+                if (document.get("scenario") != null
+                        && !document.get("scenario").equals(request.getScenario())) {
+                    continue;
+                }
+                Object chunks = document.get("chunks");
+                if (!(chunks instanceof Iterable<?> iterable)) {
+                    continue;
+                }
+                for (Object raw : iterable) {
+                    Map<String, Object> chunk = RuntimeData.map(raw);
+                    String content = RuntimeData.text(chunk, "content", "");
+                    double matched =
+                            overlap(terms, content, RuntimeData.text(chunk, "title_path", ""));
+                    if (matched > 0) {
+                        items.add(
+                                RetrievalItem.builder()
+                                        .sourceType("document")
+                                        .sourceId(RuntimeData.text(chunk, "chunk_id", ""))
+                                        .citationId(RuntimeData.text(chunk, "chunk_id", ""))
+                                        .versionId(RuntimeData.text(document, "version_id", ""))
+                                        .contentHash(RuntimeData.text(chunk, "content_hash", ""))
+                                        .title(RuntimeData.text(chunk, "title_path", ""))
+                                        .content(content)
+                                        .score(round(matched * DOCUMENT_WEIGHT))
+                                        .build());
+                    }
                 }
             }
         }
 
-        items.sort(Comparator.comparingDouble(RetrievalItem::getScore).reversed()
-                .thenComparing(RetrievalItem::getSourceId, Comparator.nullsLast(Comparator.naturalOrder())));
+        items.sort(
+                Comparator.comparingDouble(RetrievalItem::getScore)
+                        .reversed()
+                        .thenComparing(
+                                RetrievalItem::getSourceId,
+                                Comparator.nullsLast(Comparator.naturalOrder())));
         int totalFound = items.size();
         List<RetrievalItem> top = items.subList(0, Math.min(topK, items.size()));
 
-        log.debug("Retrieval: terms={}, candidates={}, returned={}",
-                terms.size(), items.size(), top.size());
+        log.debug(
+                "Retrieval: terms={}, candidates={}, returned={}",
+                terms.size(),
+                items.size(),
+                top.size());
 
         return RetrievalResult.builder()
                 .query(request.getQuery())
@@ -135,9 +218,8 @@ public class RetrievalService {
     }
 
     /**
-     * Cases filtered by scenario when one is supplied. A case recorded against
-     * a different scenario is not evidence for this one, so this is a filter
-     * rather than a scoring signal.
+     * Cases filtered by scenario when one is supplied. A case recorded against a different scenario
+     * is not evidence for this one, so this is a filter rather than a scoring signal.
      */
     private List<CaseInfo> casesInScope(RetrievalRequest request) {
         if (request.getScenario() == null || request.getScenario().isBlank()) {
@@ -227,5 +309,8 @@ public class RetrievalService {
         private String title;
         private String content;
         private double score;
+        private String versionId;
+        private String citationId;
+        private String contentHash;
     }
 }

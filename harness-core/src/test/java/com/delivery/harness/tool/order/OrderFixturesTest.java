@@ -110,4 +110,10 @@ class OrderFixturesTest {
                         .equals(b.getExtraInfo().get("dispatch_wait_minutes")),
                 "the two scenarios must differ in where the time went");
     }
+    @Test
+    void syntheticBalanceIsExplicitRatherThanAnInferredRefundDefault() {
+        OrderInfo fixture = OrderFixtures.build("TEST003", NOW);
+        assertEquals(fixture.getOrderAmount(), fixture.getRefundableBalance());
+    }
+
 }

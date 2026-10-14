@@ -8,12 +8,14 @@ import com.delivery.harness.common.exception.HarnessException;
 import com.delivery.harness.common.util.TraceUtil;
 import com.delivery.harness.observe.metrics.MetricsService;
 import com.delivery.harness.observe.trace.TraceService;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -24,18 +26,16 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Entry point for a scenario request: runs the workflow, then records what
- * happened.
+ * Entry point for a scenario request: runs the workflow, then records what happened.
  *
- * <p>The recording is the new part. {@code TraceService.recordTrace} and
- * {@code MetricsService} previously had no callers anywhere, so the
- * {@code /api/v1/observe} endpoints always returned empty while advertising
- * tracing and metrics. Wiring them costs about thirty lines and is cheaper
- * than deleting three public endpoints — see ADR-0001 for why these two
- * components were kept when other unused code was removed.
+ * <p>The recording is the new part. {@code TraceService.recordTrace} and {@code MetricsService}
+ * previously had no callers anywhere, so the {@code /api/v1/observe} endpoints always returned
+ * empty while advertising tracing and metrics. Wiring them costs about thirty lines and is cheaper
+ * than deleting three public endpoints — see ADR-0001 for why these two components were kept when
+ * other unused code was removed.
  *
- * <p>Recording never fails a request. A workflow that succeeded but whose
- * trace could not be stored is still a success.
+ * <p>Recording never fails a request. A workflow that succeeded but whose trace could not be stored
+ * is still a success.
  */
 @Slf4j
 @Service
@@ -56,7 +56,8 @@ public class AgentOrchestrator {
 
         try {
             log.info("Agent processing: scenario={}, traceId={}", request.getScenario(), traceId);
-            WorkflowExecution execution = workflowEngine.execute(request.getScenario(), request.getInput());
+            WorkflowExecution execution =
+                    workflowEngine.execute(request.getScenario(), request.getInput());
             observe(traceId, request, execution);
 
             if (!isCompleted(execution.getStatus())) {
@@ -64,13 +65,22 @@ public class AgentOrchestrator {
             }
             return HarnessResponse.success(execution, traceId);
         } catch (HarnessException e) {
-            observeFailure(traceId, request, e);
-            metricsService.incrementCounter(metricName(request.getScenario(), "dependency_failure"));
+            WorkflowExecution failed = workflowEngine.takeFailedExecution();
+            if (failed == null) {
+                observeFailure(traceId, request, e);
+            } else {
+                observe(traceId, request, failed);
+            }
+            safeIncrement(metricName(request.getScenario(), "dependency_failure"));
             throw e;
         } catch (Exception e) {
-            log.error("Agent processing failed: scenario={}, traceId={}", request.getScenario(), traceId, e);
+            log.error(
+                    "Agent processing failed: scenario={}, traceId={}",
+                    request.getScenario(),
+                    traceId,
+                    e);
             observeFailure(traceId, request, e);
-            metricsService.incrementCounter(metricName(request.getScenario(), "error"));
+            safeIncrement(metricName(request.getScenario(), "error"));
             return HarnessResponse.error(500, "Agent processing failed", traceId);
         } finally {
             if (ownsTrace) {
@@ -80,51 +90,67 @@ public class AgentOrchestrator {
     }
 
     /**
-     * Stores one trace and updates counters. Wrapped so an observability
-     * failure can never turn a successful workflow into a failed request.
+     * Stores one trace and updates counters. Wrapped so an observability failure can never turn a
+     * successful workflow into a failed request.
      */
     private void observe(String traceId, AgentRequest request, WorkflowExecution execution) {
         try {
-            traceService.recordTrace(TraceService.TraceRecord.builder()
-                    .traceId(traceId)
-                    .scenario(request.getScenario())
-                    .input(request.getInput())
-                    .output(execution.getOutput())
-                    .spans(toSpans(execution))
-                    .totalDurationMs(execution.getTotalDurationMs())
-                    .status(execution.getStatus())
-                    .createdAt(LocalDateTime.now())
-                    .build());
+            traceService.recordTrace(
+                    TraceService.TraceRecord.builder()
+                            .traceId(traceId)
+                            .scenario(request.getScenario())
+                            .input(request.getInput())
+                            .output(execution.getOutput())
+                            .spans(toSpans(execution))
+                            .totalDurationMs(execution.getTotalDurationMs())
+                            .status(execution.getStatus())
+                            .createdAt(LocalDateTime.now())
+                            .build());
 
-            String outcome = HarnessConstants.STATUS_SUCCESS.equals(execution.getStatus())
-                    ? "success"
-                    : HarnessConstants.STATUS_DEGRADED.equals(execution.getStatus())
-                    ? "degraded" : "failure";
+            String outcome =
+                    HarnessConstants.STATUS_SUCCESS.equals(execution.getStatus())
+                            ? "success"
+                            : HarnessConstants.STATUS_DEGRADED.equals(execution.getStatus())
+                                    ? "degraded"
+                                    : "failure";
             metricsService.incrementCounter(metricName(request.getScenario(), outcome));
             if (execution.getTotalDurationMs() != null) {
                 metricsService.recordLatency(
-                        metricName(request.getScenario(), "latency"), execution.getTotalDurationMs());
+                        metricName(request.getScenario(), "latency"),
+                        execution.getTotalDurationMs());
             }
             recordStepLatencies(request.getScenario(), execution);
         } catch (RuntimeException e) {
-            log.warn("Failed to record trace or metrics for traceId={}: {}", traceId, e.getMessage());
+            log.warn(
+                    "Failed to record trace or metrics for traceId={}: {}",
+                    traceId,
+                    e.getMessage());
+        }
+    }
+
+    private void safeIncrement(String counter) {
+        try {
+            metricsService.incrementCounter(counter);
+        } catch (RuntimeException failure) {
+            log.warn("Metrics unavailable: {}", failure.getClass().getSimpleName());
         }
     }
 
     private void observeFailure(String traceId, AgentRequest request, Exception failure) {
         try {
-            traceService.recordTrace(TraceService.TraceRecord.builder()
-                    .traceId(traceId)
-                    .scenario(request.getScenario())
-                    .input(request.getInput())
-                    .output(Map.of("error_type", failure.getClass().getSimpleName()))
-                    .spans(Collections.emptyList())
-                    .status(HarnessConstants.STATUS_FAILED)
-                    .createdAt(LocalDateTime.now())
-                    .build());
+            traceService.recordTrace(
+                    TraceService.TraceRecord.builder()
+                            .traceId(traceId)
+                            .scenario(request.getScenario())
+                            .input(request.getInput())
+                            .output(Map.of("error_type", failure.getClass().getSimpleName()))
+                            .spans(Collections.emptyList())
+                            .status(HarnessConstants.STATUS_FAILED)
+                            .createdAt(LocalDateTime.now())
+                            .build());
             metricsService.incrementCounter(metricName(request.getScenario(), "failure"));
         } catch (RuntimeException e) {
-            log.warn("Failed to record failed trace for traceId={}: {}", traceId, e.getMessage());
+            log.warn("Failed to record trace: traceId={}, errorType={}", traceId, e.getClass().getSimpleName());
         }
     }
 
@@ -146,15 +172,19 @@ public class AgentOrchestrator {
             return Collections.emptyList();
         }
         return execution.getSteps().stream()
-                .map(step -> TraceService.TraceSpan.builder()
-                        .spanId(UUID.randomUUID().toString())
-                        .spanType(step.getStepType())
-                        .name(step.getName())
-                        .durationMs(step.getDurationMs())
-                        .attributes(Map.of(
-                                "status", String.valueOf(step.getStatus()),
-                                "tool_name", String.valueOf(step.getToolName())))
-                        .build())
+                .map(
+                        step ->
+                                TraceService.TraceSpan.builder()
+                                        .spanId(UUID.randomUUID().toString())
+                                        .spanType(step.getStepType())
+                                        .name(step.getName())
+                                        .durationMs(step.getDurationMs())
+                                        .attributes(
+                                                Map.of(
+                                                        "status", String.valueOf(step.getStatus()),
+                                                        "tool_name",
+                                                                String.valueOf(step.getToolName())))
+                                        .build())
                 .collect(Collectors.toList());
     }
 

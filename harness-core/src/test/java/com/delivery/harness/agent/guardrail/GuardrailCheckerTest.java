@@ -1,15 +1,15 @@
 package com.delivery.harness.agent.guardrail;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
-
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTimeout;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GuardrailCheckerTest {
 
@@ -62,55 +62,66 @@ class GuardrailCheckerTest {
     void allowsTheAuthoritativeAmountToBeQuotedButRejectsConflicts() {
         BigDecimal authoritative = new BigDecimal("20.00");
 
-        assertFalse(checker.mentionsConflictingCompensationAmount(
-                "适用 COMP-001，最高不超过20元", authoritative));
-        assertFalse(checker.mentionsConflictingCompensationAmount(
-                "规则引擎已判定本单赔付 ￥20.00，我仅说明依据", authoritative));
-        assertFalse(checker.mentionsConflictingCompensationAmount(
-                "{\"suggested_amount\":20}", authoritative));
-        assertTrue(checker.mentionsConflictingCompensationAmount(
-                "{\"suggested_amount\":\"20\"}", authoritative));
-        assertTrue(checker.mentionsConflictingCompensationAmount(
-                "建议赔付50元", authoritative));
-        assertTrue(checker.mentionsConflictingCompensationAmount(
-                "{\"suggested_amount\":999}", authoritative));
-        assertFalse(checker.mentionsConflictingCompensationAmount(
-                "订单晚了35分钟", authoritative));
+        assertFalse(
+                checker.mentionsConflictingCompensationAmount(
+                        "适用 COMP-001，最高不超过20元", authoritative));
+        assertFalse(
+                checker.mentionsConflictingCompensationAmount(
+                        "规则引擎已判定本单赔付 ￥20.00，我仅说明依据", authoritative));
+        assertFalse(
+                checker.mentionsConflictingCompensationAmount(
+                        "{\"suggested_amount\":20}", authoritative));
+        assertTrue(
+                checker.mentionsConflictingCompensationAmount(
+                        "{\"suggested_amount\":\"20\"}", authoritative));
+        assertTrue(checker.mentionsConflictingCompensationAmount("建议赔付50元", authoritative));
+        assertTrue(
+                checker.mentionsConflictingCompensationAmount(
+                        "{\"suggested_amount\":999}", authoritative));
+        assertFalse(checker.mentionsConflictingCompensationAmount("订单晚了35分钟", authoritative));
     }
 
     @Test
     void treatsUnparseableExponentsAsConflicts() {
         BigDecimal authoritative = new BigDecimal("20.00");
-        for (String amount : new String[]{"1e2147483648", "1e-2147483648", "1e99999999999999999999"}) {
-            assertTrue(checker.mentionsConflictingCompensationAmount(
-                    "{\"suggested_amount\":" + amount + "}", authoritative));
+        for (String amount :
+                new String[] {"1e2147483648", "1e-2147483648", "1e99999999999999999999"}) {
+            assertTrue(
+                    checker.mentionsConflictingCompensationAmount(
+                            "{\"suggested_amount\":" + amount + "}", authoritative));
         }
     }
 
     @Test
     void comparesValidScientificNotationWithTheAuthoritativeAmount() {
         BigDecimal authoritative = new BigDecimal("20.00");
-        assertFalse(checker.mentionsConflictingCompensationAmount(
-                "{\"suggested_amount\":2e1}", authoritative));
-        assertTrue(checker.mentionsConflictingCompensationAmount(
-                "{\"suggested_amount\":3e1}", authoritative));
+        assertFalse(
+                checker.mentionsConflictingCompensationAmount(
+                        "{\"suggested_amount\":2e1}", authoritative));
+        assertTrue(
+                checker.mentionsConflictingCompensationAmount(
+                        "{\"suggested_amount\":3e1}", authoritative));
     }
 
     @Test
     void preservesCurrencyFormsAndAuthoritativeAmountComparison() {
-        for (String amount : new String[]{"20元", "20.元", "20.00 元", "¥20", "￥ 20.00"}) {
+        for (String amount : new String[] {"20元", "20.元", "20.00 元", "¥20", "￥ 20.00"}) {
             assertTrue(checker.mentionsCompensationAmount(amount), amount);
-            assertFalse(checker.mentionsConflictingCompensationAmount(
-                    amount, new BigDecimal("20")), amount);
-            assertTrue(checker.mentionsConflictingCompensationAmount(
-                    amount, new BigDecimal("10")), amount);
+            assertFalse(
+                    checker.mentionsConflictingCompensationAmount(amount, new BigDecimal("20")),
+                    amount);
+            assertTrue(
+                    checker.mentionsConflictingCompensationAmount(amount, new BigDecimal("10")),
+                    amount);
         }
-        for (String amount : new String[]{"-.5元", "-0.50 元", "¥-.5", "￥ -0.50"}) {
+        for (String amount : new String[] {"-.5元", "-0.50 元", "¥-.5", "￥ -0.50"}) {
             assertTrue(checker.mentionsCompensationAmount(amount), amount);
-            assertFalse(checker.mentionsConflictingCompensationAmount(
-                    amount, new BigDecimal("-0.5")), amount);
-            assertTrue(checker.mentionsConflictingCompensationAmount(
-                    amount, new BigDecimal("0.5")), amount);
+            assertFalse(
+                    checker.mentionsConflictingCompensationAmount(amount, new BigDecimal("-0.5")),
+                    amount);
+            assertTrue(
+                    checker.mentionsConflictingCompensationAmount(amount, new BigDecimal("0.5")),
+                    amount);
         }
     }
 
@@ -118,19 +129,46 @@ class GuardrailCheckerTest {
     void checksLongDigitRunsWithoutQuadraticScanning() {
         String digits = "9".repeat(40000);
         // Generous budget for slow CI; the old expression takes seconds per scan.
-        assertTimeout(Duration.ofSeconds(2), () -> {
-            for (String content : new String[]{digits, "-" + digits,
-                    digits + "." + digits, digits + " minutes"}) {
-                assertFalse(checker.mentionsCompensationAmount(content));
-                assertFalse(checker.mentionsConflictingCompensationAmount(
-                        content, new BigDecimal("20")));
-            }
-            assertTrue(checker.mentionsCompensationAmount(digits + "元"));
-            assertTrue(checker.mentionsCompensationAmount("￥" + digits));
-            assertFalse(checker.mentionsConflictingCompensationAmount(
-                    digits + "；赔付20元", new BigDecimal("20")));
-            assertTrue(checker.mentionsConflictingCompensationAmount(
-                    digits + "；赔付30元", new BigDecimal("20")));
-        });
+        assertTimeout(
+                Duration.ofSeconds(2),
+                () -> {
+                    for (String content :
+                            new String[] {
+                                digits, "-" + digits, digits + "." + digits, digits + " minutes"
+                            }) {
+                        assertFalse(checker.mentionsCompensationAmount(content));
+                        assertFalse(
+                                checker.mentionsConflictingCompensationAmount(
+                                        content, new BigDecimal("20")));
+                    }
+                    assertTrue(checker.mentionsCompensationAmount(digits + "元"));
+                    assertTrue(checker.mentionsCompensationAmount("￥" + digits));
+                    assertFalse(
+                            checker.mentionsConflictingCompensationAmount(
+                                    digits + "；赔付20元", new BigDecimal("20")));
+                    assertTrue(
+                            checker.mentionsConflictingCompensationAmount(
+                                    digits + "；赔付30元", new BigDecimal("20")));
+                });
+    }
+
+    @Test
+    void blocksCompletedPaymentClaimsAndUncomparableCurrencyVariants() {
+        for (String claim :
+                new String[] {"退款已完成", "款项已到账", "已发放红包", "已按规则为您处理", "refund completed"}) {
+            assertFalse(checker.checkForbiddenPhrases(claim), claim);
+        }
+        for (String amount :
+                new String[] {
+                    "五百元", "伍佰元", "￥五百", "500 CNY", "CNY 500", "$500", "500块", "人民币500", "500人民币"
+                }) {
+            assertTrue(checker.mentionsCompensationAmount(amount), amount);
+            assertTrue(
+                    checker.mentionsConflictingCompensationAmount(amount, new BigDecimal("20")),
+                    amount);
+        }
+        assertTrue(checker.mentionsConflictingCompensationAmount("５０元", new BigDecimal("20")));
+        assertFalse(checker.mentionsConflictingCompensationAmount("２０元", new BigDecimal("20")));
+        assertTrue(checker.checkForbiddenPhrases("建议按规则处理，尚未执行"));
     }
 }

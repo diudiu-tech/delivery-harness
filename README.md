@@ -25,7 +25,7 @@ An AI harness reference implementation for on-demand delivery operations. It com
 - Completed workflows with an unavailable optional dependency are reported as `DEGRADED`; the deterministic result remains available and the affected step is recorded as failed.
 - A local Ollama profile, regression tests, Maven Wrapper, and GitHub Actions CI.
 
-The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, durable persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
+The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, production-validated persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
 
 ### Trusted decision semantics (breaking changes)
 
@@ -56,6 +56,17 @@ HTTP 429/502/503/504, within the original deadline; legacy calls do not retry.
 Pilot requires an explicit `HARNESS_LLM_ALLOWED_HOSTS` allowlist and HTTPS
 (explicit loopback HTTP is allowed for tests). Redirects are rejected. Code-owned
 constraints remain system messages; configurable task prompts have lower priority.
+
+### Indexed storage foundation
+
+Platform records and audit events use JDBC and core-owned Flyway migrations.
+Material bodies are separated from indexed metadata. Read helpers do not commit;
+writes and audit events share one transaction with optimistic version checks.
+Audit ordering uses timestamps and event IDs, with scoped SQL pagination.
+The default H2 database is an in-memory demonstration; configure
+`HARNESS_DATABASE_URL`, username and password for a durable deployment.
+PostgreSQL drivers are included, but H2 migration tests do not certify a real
+PostgreSQL deployment. See [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md).
 
 ## Architecture
 
@@ -249,7 +260,7 @@ Unit and API regression tests cover both workflows. Both workflows are covered e
 - `modelVersion` and `promptVersion` on an evaluation run are recorded metadata labels; they do not yet select a model or mutate the workflow prompt. Pin those inputs through deployment configuration when comparing runs.
 - `needs_human_review` and `approval_required` are derived from guardrail outcome, parse success, model confidence and baseline agreement. This is reporting, not authority: nothing here executes a payment.
 - Guardrails report pass/fail in workflow steps and the final output, but do not replace human review.
-- There is no persistence layer. A prior revision shipped an unexecuted PostgreSQL schema; it was removed rather than left to imply otherwise.
+- JDBC/Flyway provides the platform storage foundation. Legacy workflow knowledge, evaluation and trace stores still use memory; a configured PostgreSQL deployment requires its own migration and restore validation.
 
 ## Roadmap
 

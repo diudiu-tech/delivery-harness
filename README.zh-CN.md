@@ -90,6 +90,14 @@ v2 队列在 SQL 分页前应用状态、精确订单/审核人、风险、投�
 需重新分析。导出使用 `POST /api/v2/cases/{id}/export` 并写审计回执，GET
 返回 405；复核不执行资金。见 [ADR-0007](docs/adr/0007-independent-case-and-decision-reviewers.md)。
 
+### 持久执行队列
+
+v2 分析入队前冻结订单证据和运行输入，使用幂等、容量边界、fence 和总截止时间。
+心跳、截止时间和恢复使用独立调度器；完成事务锁定执行记录，避免正常心跳
+引起版本冲突。恢复游标在租户与活动任务间按有界 SQL 页推进。
+决定作者绑定提交者，复核结果仍为建议且 `NOT_EXECUTED`。见
+[ADR-0008](docs/adr/0008-durable-queue-with-independent-schedulers.md)。
+
 ## 架构
 
 ```mermaid

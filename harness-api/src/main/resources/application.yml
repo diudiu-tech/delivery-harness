@@ -1,6 +1,8 @@
 spring:
   application:
     name: delivery-harness
+  profiles:
+    active: ${HARNESS_MODE:demo}
   datasource:
     url: ${HARNESS_DATABASE_URL:jdbc:h2:mem:harness;DB_CLOSE_DELAY=-1}
     username: ${HARNESS_DATABASE_USERNAME:sa}
@@ -24,6 +26,15 @@ server:
       force: true
 
 harness:
+  mode: ${HARNESS_MODE:demo}
+  security:
+    demo-identities: '${HARNESS_DEMO_IDENTITIES:}'
+    allowed-hosts: ${HARNESS_BROWSER_ALLOWED_HOSTS:localhost,127.0.0.1,[::1]}
+    allowed-origins: ${HARNESS_BROWSER_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080,http://[::1]:8080}
+    oidc:
+      issuer: ${HARNESS_OIDC_ISSUER:}
+      audience: ${HARNESS_OIDC_AUDIENCE:}
+      jwk-set-uri: ${HARNESS_OIDC_JWK_SET_URI:}
   review:
     approval-threshold: ${HARNESS_REVIEW_APPROVAL_THRESHOLD:10.00}
   llm:

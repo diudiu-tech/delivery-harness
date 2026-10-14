@@ -16,6 +16,8 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 
 | [0006](0006-indexed-metadata-and-separated-material-content.md) | Indexed metadata, material bodies and timestamp audit cursors | Proposed |
 
+| [0009](0009-oidc-identities-and-local-demo-access.md) | Verified OIDC identities and explicit local demo access | Proposed |
+
 ## When to write one
 
 Write an ADR when a reviewer would reasonably ask "why didn't you just…?".

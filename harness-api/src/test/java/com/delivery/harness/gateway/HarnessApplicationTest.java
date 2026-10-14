@@ -1,24 +1,25 @@
 package com.delivery.harness.gateway;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
 @SpringBootTest
+@Import(DemoApiTestSupport.class)
 @AutoConfigureMockMvc
 class HarnessApplicationTest {
 
-    @Autowired
-    private MockMvc mockMvc;
+    @Autowired private MockMvc mockMvc;
 
     @Test
     void contextLoadsAndExposesMetricsEndpoint() throws Exception {
@@ -31,9 +32,10 @@ class HarnessApplicationTest {
 
     @Test
     void rejectsAnalysisWithoutOrderId() throws Exception {
-        mockMvc.perform(post("/api/v1/analyze/abnormal-order")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+        mockMvc.perform(
+                        post("/api/v1/analyze/abnormal-order")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("Invalid request"));
@@ -41,17 +43,23 @@ class HarnessApplicationTest {
 
     @Test
     void ingestsAndFindsSyntheticKnowledge() throws Exception {
-        mockMvc.perform(post("/api/v1/knowledge/ingest")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"Synthetic policy\",\"sourceType\":\"document\","
-                                + "\"category\":\"test\",\"content\":\"synthetic-needle policy text\"}"))
+        mockMvc.perform(
+                        post("/api/v1/knowledge/ingest")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"title\":\"Synthetic"
+                                            + " policy\",\"sourceType\":\"document\""
+                                            + ",\"category\":\"test\",\"content\":\"synthetic-needle"
+                                            + " policy text\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.title").value("Synthetic policy"));
 
-        mockMvc.perform(post("/api/v1/knowledge/search")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"query\":\"synthetic-needle\",\"sourceTypes\":[\"document\"],\"topK\":5}"))
+        mockMvc.perform(
+                        post("/api/v1/knowledge/search")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"query\":\"synthetic-needle\",\"sourceTypes\":[\"document\"],\"topK\":5}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalFound").value(1))
                 .andExpect(jsonPath("$.data.items[0].sourceType").value("document"));
@@ -60,42 +68,49 @@ class HarnessApplicationTest {
     @Test
     void rejectsChunkOverlapThatCannotAdvance() throws Exception {
         String content = "x".repeat(200);
-        String request = String.format(
-                "{\"title\":\"Invalid chunks\",\"sourceType\":\"document\","
-                        + "\"content\":\"%s\",\"chunkSize\":100,\"chunkOverlap\":100}",
-                content);
+        String request =
+                String.format(
+                        "{\"title\":\"Invalid chunks\",\"sourceType\":\"document\","
+                                + "\"content\":\"%s\",\"chunkSize\":100,\"chunkOverlap\":100}",
+                        content);
 
-        mockMvc.perform(post("/api/v1/knowledge/ingest")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request))
+        mockMvc.perform(
+                        post("/api/v1/knowledge/ingest")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(request))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test
     void rejectsChunkOverlapWithoutChunkSize() throws Exception {
-        mockMvc.perform(post("/api/v1/knowledge/ingest")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"Invalid chunks\",\"sourceType\":\"document\","
-                                + "\"content\":\"policy text\",\"chunkOverlap\":10}"))
+        mockMvc.perform(
+                        post("/api/v1/knowledge/ingest")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"title\":\"Invalid"
+                                            + " chunks\",\"sourceType\":\"document\",\"content\":\"policy"
+                                            + " text\",\"chunkOverlap\":10}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test
     void rejectsEvalCaseWithoutRequiredFields() throws Exception {
-        mockMvc.perform(post("/api/v1/eval/cases")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+        mockMvc.perform(
+                        post("/api/v1/eval/cases")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test
     void rejectsNullEvalCaseIdElement() throws Exception {
-        mockMvc.perform(post("/api/v1/eval/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"caseIds\":[null]}"))
+        mockMvc.perform(
+                        post("/api/v1/eval/run")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"caseIds\":[null]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }

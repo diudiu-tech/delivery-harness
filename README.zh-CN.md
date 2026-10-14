@@ -25,7 +25,7 @@
 - 可选依赖不可用但确定性结果仍可返回时，工作流状态为 `DEGRADED`；受影响步骤会记录为失败，避免与完整成功混淆。
 - 本地 Ollama 配置、回归测试、Maven Wrapper 和 GitHub Actions CI。
 
-以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、经生产验证的持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
+以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、经生产验证的持久化存储、向量 Embedding/Milvus RAG、经组织验收的身份集成、生产配额、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
 
 ### 可信决策语义（破坏性变更）
 
@@ -59,6 +59,20 @@ pilot 需要显式设置 `HARNESS_LLM_ALLOWED_HOSTS` 并使用 HTTPS（测试可
 ID 排序并在 SQL 中按授权范围分页。默认 H2 仅为内存演示；持久化部署需配置
 `HARNESS_DATABASE_URL`、用户名和密码。已提供 PostgreSQL 驱动，但 H2 迁移
 测试不能证明真实 PostgreSQL 部署已验收。见 [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md)。
+
+### 显式 API 身份（破坏性变更）
+
+所有 `/api/**` 请求均需显式 bearer。本机 demo 提供小角色集合的
+`demo-agent-token`、`demo-reviewer-token`、`demo-supervisor-token`、
+`demo-admin-token`、`demo-publisher-token`，不会匿名授予全部权限。
+`HARNESS_DEMO_IDENTITIES` 留空使用上述公开合成身份，`[]` 关闭默认身份；
+demo 还校验明确的 Host/Origin 白名单。
+
+pilot 验证 OIDC JWT 签名、issuer、audience、租户、角色和数据范围，拒绝
+演示凭证；已认证 v1 请求返回 410。部署需设置 `HARNESS_OIDC_ISSUER`、
+`HARNESS_OIDC_AUDIENCE`、`HARNESS_OIDC_JWK_SET_URI` 及浏览器白名单。
+本地签名夹具测试不能代替真实组织 IdP 与授权验收。见
+[ADR-0009](docs/adr/0009-oidc-identities-and-local-demo-access.md)。
 
 ## 架构
 
@@ -135,6 +149,7 @@ API 默认监听 `http://localhost:8080`。
 
 ```bash
 curl --fail-with-body \
+  -H 'Authorization: Bearer demo-agent-token' \
   --request POST \
   --header 'Content-Type: application/json' \
   --data '{"order_id":"DEMO-001"}' \
@@ -145,6 +160,7 @@ curl --fail-with-body \
 
 ```bash
 curl --fail-with-body \
+  -H 'Authorization: Bearer demo-agent-token' \
   --request POST \
   --header 'Content-Type: application/json' \
   --data '{"order_id":"DEMO-002","complaint_type":"OVERTIME"}' \
@@ -236,7 +252,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 
 ## 安全与数据处理
 
-- 当前没有鉴权、授权、租户隔离和限流。
+- API 强制显式 bearer 并校验租户、角色及数据范围；匿名失败采用有界限流。组织授权与生产配额仍需部署验收。
 - 工具数据与地址均为合成示例；公开部署时请勿替换为真实个人数据。
 - 导入的知识内容会影响 Prompt，应将知识导入视为 Prompt Injection 信任边界。
 - 建议式检查器只识别少量短语和金额条件，不是完整策略引擎。
@@ -256,7 +272,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 
 ## Roadmap
 
-- 增加 API 鉴权、授权与请求配额。
+- 验收组织 IdP 接入、撤权、密钥轮换及生产请求配额。
 - 用版本化 Adapter 和契约测试替换 Mock 工具。
 - 通过显式 Profile 接入持久化 Repository 和 Migration。
 - 持久化 Trace、指标、反馈和审计事件，并增加保留策略。

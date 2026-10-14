@@ -25,7 +25,7 @@ An AI harness reference implementation for on-demand delivery operations. It com
 - Completed workflows with an unavailable optional dependency are reported as `DEGRADED`; the deterministic result remains available and the affected step is recorded as failed.
 - A local Ollama profile, regression tests, Maven Wrapper, and GitHub Actions CI.
 
-The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, production-validated persistence, vector embeddings/Milvus RAG, authentication, rate limiting, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
+The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, production-validated persistence, vector embeddings/Milvus RAG, organization-validated identity integration, production quotas, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
 
 ### Trusted decision semantics (breaking changes)
 
@@ -67,6 +67,21 @@ The default H2 database is an in-memory demonstration; configure
 `HARNESS_DATABASE_URL`, username and password for a durable deployment.
 PostgreSQL drivers are included, but H2 migration tests do not certify a real
 PostgreSQL deployment. See [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md).
+
+### Explicit API identity (breaking change)
+
+Every `/api/**` request needs an explicit bearer. Local demo offers
+`demo-agent-token`, `demo-reviewer-token`, `demo-supervisor-token`,
+`demo-admin-token` and `demo-publisher-token` with separate roles. Blank
+`HARNESS_DEMO_IDENTITIES` selects these public synthetic identities; `[]`
+disables them. Demo also checks literal Host/Origin allowlists.
+
+Pilot uses signed OIDC JWTs with issuer, audience, tenant, role and scope
+validation; it rejects demo credentials and returns 410 for authenticated v1
+requests. Configure `HARNESS_OIDC_ISSUER`, `HARNESS_OIDC_AUDIENCE`,
+`HARNESS_OIDC_JWK_SET_URI` and the browser allowlists for your deployment.
+Local JWT tests do not certify your IdP integration or permission grants.
+See [ADR-0009](docs/adr/0009-oidc-identities-and-local-demo-access.md).
 
 ## Architecture
 
@@ -142,6 +157,7 @@ depend on the response shape.
 
 ```bash
 curl --fail-with-body \
+  -H 'Authorization: Bearer demo-agent-token' \
   --request POST \
   --header 'Content-Type: application/json' \
   --data '{"order_id":"DEMO-001"}' \
@@ -152,6 +168,7 @@ Compensation suggestion:
 
 ```bash
 curl --fail-with-body \
+  -H 'Authorization: Bearer demo-agent-token' \
   --request POST \
   --header 'Content-Type: application/json' \
   --data '{"order_id":"DEMO-002","complaint_type":"OVERTIME"}' \
@@ -244,7 +261,7 @@ Unit and API regression tests cover both workflows. Both workflows are covered e
 
 ## Security and data handling
 
-- There is no authentication, authorization, tenant isolation, or rate limiting.
+- APIs require explicit bearer identities and enforce tenant/role/scope. Anonymous failures use bounded throttling. Organizational permission grants and production quota policy require deployment review.
 - Tool data and addresses are synthetic examples; do not replace them with real personal data in a public deployment.
 - Ingested documents can influence prompts. Treat knowledge ingestion as a prompt-injection trust boundary.
 - The advisory checker detects a small set of phrases and amount conditions; it is not a policy engine.
@@ -264,7 +281,7 @@ Unit and API regression tests cover both workflows. Both workflows are covered e
 
 ## Roadmap
 
-- Add authenticated, authorized API access and request quotas.
+- Validate organization IdP onboarding, revocation, key rotation and production quotas.
 - Replace mock tools with versioned adapters and contract tests.
 - Add durable repositories and migrations behind explicit profiles.
 - Persist traces, metrics, feedback, and audit events with retention limits.

@@ -32,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import({StubLlmClientConfig.class})
+@Import({StubLlmClientConfig.class, DemoApiTestSupport.class})
 class CompensationSuggestionApiTest {
 
     private static final String JUSTIFICATION = """

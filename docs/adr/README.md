@@ -13,14 +13,10 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 | [0003](0003-no-vector-retrieval-at-this-corpus-size.md) | No vector retrieval at this corpus size | Accepted |
 | [0004](0004-three-maven-modules-instead-of-nine.md) | Three Maven modules instead of nine | Accepted |
 | [0005](0005-trusted-workflow-output-contract.md) | Keep decision authority in trusted workflow inputs and outputs | Proposed |
-
 | [0006](0006-indexed-metadata-and-separated-material-content.md) | Indexed metadata, material bodies and timestamp audit cursors | Proposed |
-
-| [0009](0009-oidc-identities-and-local-demo-access.md) | Verified OIDC identities and explicit local demo access | Proposed |
-
 | [0007](0007-independent-case-and-decision-reviewers.md) | Independent case and decision reviewers | Proposed |
-
 | [0008](0008-durable-queue-with-independent-schedulers.md) | Durable queue with independent schedulers | Proposed |
+| [0009](0009-oidc-identities-and-local-demo-access.md) | Verified OIDC identities and explicit local demo access | Proposed |
 
 ## When to write one
 

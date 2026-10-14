@@ -306,6 +306,41 @@ public class PlatformStore {
         }
     }
 
+    /** Internal recovery scan across tenants; each call reads at most one bounded active page. */
+    public Page activePage(String kind, Set<String> statuses, String cursor, int limit) {
+        validateLimit(limit, 100);
+        if (statuses == null || statuses.isEmpty() || statuses.size() > 10) {
+            throw PlatformException.invalid("Recovery requires 1..10 explicit statuses");
+        }
+        return read(
+                tx -> {
+                    List<Object> values = new ArrayList<>(List.of(kind));
+                    StringBuilder sql =
+                            new StringBuilder("SELECT * FROM platform_records WHERE kind=?");
+                    sql.append(" AND record_status IN (")
+                            .append(String.join(",", Collections.nCopies(statuses.size(), "?")))
+                            .append(")");
+                    values.addAll(new TreeSet<>(statuses));
+                    if (cursor != null && !cursor.isBlank()) {
+                        Map<String, Object> after = decodeCursor(cursor);
+                        String tenant = cursorText(after, "tenant");
+                        sql.append(" AND (tenant_id>? OR (tenant_id=? AND record_id>?))");
+                        values.addAll(List.of(tenant, tenant, cursorText(after, "id")));
+                    }
+                    sql.append(" ORDER BY tenant_id,record_id LIMIT ?");
+                    values.add(Math.addExact(limit, 1));
+                    List<Entity> rows = tx.select(sql.toString(), values);
+                    boolean more = rows.size() > limit;
+                    if (more) rows.remove(rows.size() - 1);
+                    String next = "";
+                    if (more) {
+                        Entity last = rows.get(rows.size() - 1);
+                        next = encodeCursor(Map.of("tenant", last.tenantId(), "id", last.id()));
+                    }
+                    return new Page(List.copyOf(rows), next);
+                });
+    }
+
     public Set<String> tenants() {
         return read(
                 tx -> {

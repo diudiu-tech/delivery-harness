@@ -20,6 +20,8 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 
 | [0007](0007-independent-case-and-decision-reviewers.md) | Independent case and decision reviewers | Proposed |
 
+| [0008](0008-durable-queue-with-independent-schedulers.md) | Durable queue with independent schedulers | Proposed |
+
 ## When to write one
 
 Write an ADR when a reviewer would reasonably ask "why didn't you just…?".

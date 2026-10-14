@@ -47,6 +47,16 @@ Configure the single approval threshold with
 `10.00`); the old `harness.compensation.approval-threshold` property is replaced.
 See [ADR-0005](docs/adr/0005-trusted-workflow-output-contract.md).
 
+### Model call boundary
+
+A model call has one deadline covering upload, headers, response body and retries.
+Response bytes stop at 1 MiB; cancellation interrupts pending calls. Versioned
+runtime bindings permit at most two retries for connection/timeout failures and
+HTTP 429/502/503/504, within the original deadline; legacy calls do not retry.
+Pilot requires an explicit `HARNESS_LLM_ALLOWED_HOSTS` allowlist and HTTPS
+(explicit loopback HTTP is allowed for tests). Redirects are rejected. Code-owned
+constraints remain system messages; configurable task prompts have lower priority.
+
 ## Architecture
 
 ```mermaid

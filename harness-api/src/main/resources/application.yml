@@ -18,6 +18,7 @@ harness:
   review:
     approval-threshold: ${HARNESS_REVIEW_APPROVAL_THRESHOLD:10.00}
   llm:
+    allowed-hosts: ${HARNESS_LLM_ALLOWED_HOSTS:}
     default-endpoint: ${HARNESS_LLM_ENDPOINT:http://localhost:11434}
     default-model: ${HARNESS_LLM_MODEL:qwen2.5:7b}
     api-key: ${HARNESS_LLM_API_KEY:}

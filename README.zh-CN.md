@@ -43,6 +43,15 @@
 `harness.compensation.approval-threshold` 属性被替代。
 设计取舍见 [ADR-0005](docs/adr/0005-trusted-workflow-output-contract.md)。
 
+### 模型调用边界
+
+模型调用使用一个覆盖上传、响应头、响应体及重试的总截止时间；响应体达到
+1 MiB 即停止接收，取消会中断待完成调用。版本化运行绑定最多允许两次重试，
+仅限连接/超时及 HTTP 429/502/503/504，且共享原截止时间；旧版调用不重试。
+pilot 需要显式设置 `HARNESS_LLM_ALLOWED_HOSTS` 并使用 HTTPS（测试可显式
+允许回环 HTTP），不跟随重定向。代码约束保持 system 优先级，可配任务提示词
+使用更低优先级。
+
 ## 架构
 
 ```mermaid

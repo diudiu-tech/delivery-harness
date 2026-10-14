@@ -210,11 +210,15 @@ class AbnormalOrderAnalysisApiTest {
     }
 
     @Test
-    void returnsBadGatewayWhenTheModelIsUnreachable() throws Exception {
+    void returnsDeterministicEvidenceAndFailedModelStepWhenTheModelIsUnreachable() throws Exception {
         stubLlmClient.failWith("connection refused");
+
         analyze("TEST001")
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.message").value("Model service unavailable"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
+                .andExpect(jsonPath("$.data.output.timeline.merchant_prep_minutes").value(28))
+                .andExpect(jsonPath("$.data.output.model_availability").value("UNAVAILABLE"))
+                .andExpect(jsonPath("$.data.steps[?(@.stepType == 'llm_call' && @.status == 'FAILED' && @.errorMessage != null)]").isNotEmpty());
     }
 
     @Test

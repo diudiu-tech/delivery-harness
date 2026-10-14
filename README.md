@@ -83,6 +83,15 @@ requests. Configure `HARNESS_OIDC_ISSUER`, `HARNESS_OIDC_AUDIENCE`,
 Local JWT tests do not certify your IdP integration or permission grants.
 See [ADR-0009](docs/adr/0009-oidc-identities-and-local-demo-access.md).
 
+### Read-only order source
+
+V2 can use a read-only pilot adapter with explicit endpoint/host configuration.
+Its ten-second deadline covers response headers and body, with a 1 MB streaming
+limit and no redirects or synthetic fallback. Refundable balance is explicit:
+missing is unknown, zero is a known zero, and invalid precision or excess over
+order amount is rejected. Local demo continues to use synthetic fixtures.
+`GET /api/v2/adapters/status` returns metadata without probing orders or secrets.
+
 ## Architecture
 
 ```mermaid

@@ -194,6 +194,18 @@ DTO constraints; tests export `harness-api/target/generated-api/openapi.v2.json`
 and check route/schema consistency. See [v2 migration notes](docs/api/v2.md).
 No handwritten OpenAPI snapshot is maintained.
 
+### Decision workbench
+
+Open `/workbench/index.html` on the configured loopback origin and explicitly
+enter a demo credential. The workbench provides server-filtered case queues,
+evidence, independent review, policy/knowledge publication, evaluation, scoped
+operations/audit and feedback verification. Versioned records fetch authorized
+details rather than treating list metadata as full content. Tokens stay only in
+memory; identity switches cancel requests and clear loaded data and forms.
+The UI uses textContent and same-origin assets, with no external scripts or
+payment/deletion controls. Run `node tools/check-workbench-state.cjs` for the
+browser-state/serialization regressions alongside Maven API verification.
+
 ## Architecture
 
 ```mermaid

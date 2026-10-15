@@ -163,6 +163,15 @@ JSON 数字。批准仍为建议状态 `NOT_EXECUTED`。五个公开 demo 身份
 `harness-api/target/generated-api/openapi.v2.json` 并检查路由与 schema 一致。
 见 [v2 迁移说明](docs/api/v2.md)，不维护手写 OpenAPI 快照。
 
+### 决策工作台
+
+在配置的回环地址打开 `/workbench/index.html`，显式输入演示凭证。工作台包含
+服务端筛选队列、证据、独立复核、政策与知识发布、评测、范围内运营审计及
+反馈核验；完整版本通过授权详情获取，不把列表摘要当成正文。凭证仅存内存，
+切换身份会取消请求并清除数据与表单。页面使用 textContent、同源静态资源，
+没有外部脚本或资金/删除入口。除 Maven 验证外，可运行
+`node tools/check-workbench-state.cjs` 验证状态竞态和请求契约。
+
 ## 架构
 
 ```mermaid

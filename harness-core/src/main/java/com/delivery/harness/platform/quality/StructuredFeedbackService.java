@@ -147,6 +147,37 @@ public class StructuredFeedbackService {
         return store.scopedPage(actor, KIND, null, Set.of(), null, "", 100).items();
     }
 
+    /** A supplied regression reference must be fully readable before it can authorize a label. */
+    private String validatedRegression(
+            AuthContext.Principal actor, String runId, String feedbackId) {
+        PlatformStore.Entity run = store.require(actor.tenantId(), QualityEvalService.RUN, runId);
+        RuntimeConfigService.authorizeRead(
+                actor, QualityData.map(run.data().get("resolved_config")));
+        QualityEvalService.authorizeDataset(
+                actor,
+                new PlatformStore.Entity(
+                        run.id(),
+                        actor.tenantId(),
+                        "eval_dataset",
+                        1,
+                        run.createdAt(),
+                        run.updatedAt(),
+                        QualityData.map(run.data().get("dataset_snapshot"))));
+        if (!"COMPLETED".equals(run.data().get("status"))
+                || !Boolean.TRUE.equals(run.data().get("hard_gate_passed"))) {
+            throw new IllegalArgumentException(
+                    "Regression verification requires a completed passing labelled evaluation");
+        }
+        if (PolicyService.ruleMaps(
+                        QualityData.map(run.data().get("dataset_snapshot")).get("samples"))
+                .stream()
+                .noneMatch(sample -> feedbackId.equals(sample.get("source_feedback_id")))) {
+            throw new IllegalArgumentException(
+                    "Regression report must include this verified feedback sample");
+        }
+        return runId;
+    }
+
     public PlatformStore.Entity transition(
             AuthContext.Principal actor, String id, long version, Map<String, Object> request) {
         actor.requireRole("QUALITY", "ADMIN");
@@ -174,31 +205,10 @@ public class StructuredFeedbackService {
             data.put("issue_ref", QualityData.required(request, "issue_ref", 256));
         }
         if ("REGRESSION_VERIFIED".equals(status)) {
-            String runId = QualityData.required(request, "eval_run_id", 100);
-            PlatformStore.Entity run =
-                    store.require(actor.tenantId(), QualityEvalService.RUN, runId);
-            QualityEvalService.authorizeDataset(
-                    actor,
-                    new PlatformStore.Entity(
-                            run.id(),
-                            actor.tenantId(),
-                            "eval_dataset",
-                            1,
-                            run.createdAt(),
-                            run.updatedAt(),
-                            QualityData.map(run.data().get("dataset_snapshot"))));
-            if (!Boolean.TRUE.equals(run.data().get("hard_gate_passed"))) {
-                throw new IllegalArgumentException(
-                        "Regression verification requires a passing labelled evaluation");
-            }
-            if (PolicyService.ruleMaps(
-                            QualityData.map(run.data().get("dataset_snapshot")).get("samples"))
-                    .stream()
-                    .noneMatch(sample -> id.equals(sample.get("source_feedback_id")))) {
-                throw new IllegalArgumentException(
-                        "Regression report must include this verified feedback sample");
-            }
-            data.put("eval_run_id", runId);
+            data.put(
+                    "eval_run_id",
+                    validatedRegression(
+                            actor, QualityData.required(request, "eval_run_id", 100), id));
         }
         data.put("status", status);
         data.put("verification_reason", reason);

@@ -1025,6 +1025,82 @@ class QualityServiceTest {
                         entry.version(),
                         Map.of("status", "CONFIRMED", "reason", "verified external facts"));
         assertEquals("CONFIRMED", verified.data().get("status"));
+        var scopedVerifier =
+                new AuthContext.Principal(
+                        actor.tenantId(),
+                        "scoped-verifier",
+                        Set.of("QUALITY"),
+                        Set.of("010"),
+                        Set.of("S001"));
+        var linked =
+                feedback.transition(
+                        scopedVerifier,
+                        entry.id(),
+                        verified.version(),
+                        Map.of(
+                                "status",
+                                "LINKED_FIX",
+                                "reason",
+                                "fixed policy",
+                                "issue_ref",
+                                "TEST-1"));
+        store.create(
+                actor.tenantId(),
+                "eval_run",
+                "restricted-regression",
+                Map.of(
+                        "status",
+                        "COMPLETED",
+                        "hard_gate_passed",
+                        true,
+                        "resolved_config",
+                        Map.of(
+                                "policy_scope",
+                                Map.of("city_codes", List.of(), "station_ids", List.of()),
+                                "knowledge_snapshot",
+                                List.of(
+                                        Map.of(
+                                                "city_codes",
+                                                List.of("010"),
+                                                "station_ids",
+                                                List.of("S002")))),
+                        "dataset_snapshot",
+                        Map.of(
+                                "samples",
+                                List.of(
+                                        Map.of(
+                                                "source_feedback_id",
+                                                entry.id(),
+                                                "evidence_order",
+                                                Map.of("cityCode", "010", "stationId", "S001"))))),
+                "verifier",
+                "TEST");
+        var regression =
+                Map.<String, Object>of(
+                        "status",
+                        "REGRESSION_VERIFIED",
+                        "reason",
+                        "verified regression",
+                        "eval_run_id",
+                        "restricted-regression");
+        assertEquals(
+                404,
+                assertThrows(
+                                PlatformException.class,
+                                () ->
+                                        feedback.transition(
+                                                scopedVerifier,
+                                                entry.id(),
+                                                linked.version(),
+                                                regression))
+                        .status());
+        assertEquals(
+                "LINKED_FIX", feedback.require(scopedVerifier, entry.id()).data().get("status"));
+        assertEquals(
+                "REGRESSION_VERIFIED",
+                feedback.transition(verifier, entry.id(), linked.version(), regression)
+                        .data()
+                        .get("status"));
         var wrongTenant =
                 new AuthContext.Principal(
                         "different-tenant", "other", Set.of("QUALITY"), Set.of("*"), Set.of("*"));

@@ -169,6 +169,14 @@ label. Confirmed feedback can link a fix and a passing frozen regression run;
 raw votes never become blind-set ground truth. List summaries omit corrections;
 `GET /api/v2/feedback/{id}` requires authorization to view the full correction.
 
+### Scoped operations and audit
+
+Operations metrics count scoped rows in SQL and sample at most 1,000 explicit
+execution summaries for latency/cost. Costs remain unknown unless amount,
+currency and price version are all known; different groups are never combined.
+Audit uses an opaque timestamp/event-ID cursor with SQL scope filtering.
+These are execution observations, not decision-accuracy or business-effect claims.
+
 ## Architecture
 
 ```mermaid

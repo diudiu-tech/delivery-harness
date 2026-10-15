@@ -177,6 +177,16 @@ currency and price version are all known; different groups are never combined.
 Audit uses an opaque timestamp/event-ID cursor with SQL scope filtering.
 These are execution observations, not decision-accuracy or business-effect claims.
 
+### Advisory exceptions
+
+A supervisor may propose a bounded, evidenced exception; another authorized
+supervisor must review it. REFUND still needs verified refundable balance,
+nonmonetary RESEND uses zero and all amounts respect the configured ceiling.
+The typed amount is a JSON number. Approval remains advisory/NOT_EXECUTED.
+The five public demo identities include one supervisor; a complete exception
+review needs a second separately configured supervisor identity, as in pilot.
+No payment channel, ledger, callback or irreversible deletion is included.
+
 ## Architecture
 
 ```mermaid

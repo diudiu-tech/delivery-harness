@@ -72,6 +72,20 @@
         <finalName>harness-api</finalName>
         <plugins>
             <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>jacoco-cross-module-report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report-aggregate</goal></goals>
+                        <configuration>
+                            <includeCurrentProject>true</includeCurrentProject>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>

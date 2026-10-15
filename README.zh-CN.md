@@ -172,6 +172,13 @@ JSON 数字。批准仍为建议状态 `NOT_EXECUTED`。五个公开 demo 身份
 没有外部脚本或资金/删除入口。除 Maven 验证外，可运行
 `node tools/check-workbench-state.cjs` 验证状态竞态和请求契约。
 
+### 覆盖率验证
+
+core 独立 LINE 覆盖率门槛统一为根 POM 的 `0.70`，正常 `./mvnw clean verify`
+会强制执行；API 另生成 `target/site/jacoco-aggregate/` 跨模块报告。两份报告
+分母不同，不能混作同一质量指标，更不能据此宣称生产就绪。见
+[CONTRIBUTING](CONTRIBUTING.md)。
+
 ## 架构
 
 ```mermaid

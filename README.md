@@ -121,6 +121,16 @@ policy, knowledge and evidence scopes needed for authorization, and exclude
 prompt/document bodies. Details require separate authorized reads. See
 [ADR-0010](docs/adr/0010-explicit-record-list-projections.md).
 
+### Versioned policy publication
+
+V2 policy candidates validate canonical compensation methods, formulas,
+amount bounds, currency and effective windows. Publication requires another
+identity; the creator cannot publish their own version. Published rules are
+immutable, and demo defaults are seeded at startup rather than GET requests.
+Pilot starts without synthetic policy seeds. Policy lists use summaries;
+fetch an authorized version detail to read its rules. This workflow authorizes
+advisory policy use and executes no funds.
+
 ## Architecture
 
 ```mermaid

@@ -187,6 +187,13 @@ The five public demo identities include one supervisor; a complete exception
 review needs a second separately configured supervisor identity, as in pilot.
 No payment channel, ledger, callback or irreversible deletion is included.
 
+### Generated API contract
+
+Authenticated `GET /api/v2/openapi` generates the contract from real routes and
+DTO constraints; tests export `harness-api/target/generated-api/openapi.v2.json`
+and check route/schema consistency. See [v2 migration notes](docs/api/v2.md).
+No handwritten OpenAPI snapshot is maintained.
+
 ## Architecture
 
 ```mermaid

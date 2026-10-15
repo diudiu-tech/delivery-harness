@@ -145,6 +145,72 @@ public class PlatformStore {
         return read(tx -> tx.query(tenant, kind, caseId, statuses, state, cursor, limit));
     }
 
+    /** Lists load the precomputed metadata projection, never full snapshots or document bodies. */
+    public List<Entity> summaryPage(String tenant, String kind, String cursor, int limit) {
+        validateLimit(limit, 100);
+        return read(
+                tx -> {
+                    List<Object> values = new ArrayList<>();
+                    StringBuilder sql =
+                            summaryQuery(tenant, kind, null, Set.of(), null, cursor, values);
+                    sql.append(" ORDER BY r.record_id LIMIT ?");
+                    values.add(limit);
+                    return tx.select(sql.toString(), values);
+                });
+    }
+
+    public Page scopedSummaryPage(
+            RecordScope actor,
+            String kind,
+            String caseId,
+            Set<String> statuses,
+            String state,
+            String cursor,
+            int limit) {
+        validateLimit(limit, 100);
+        return read(
+                tx -> {
+                    List<Object> values = new ArrayList<>();
+                    StringBuilder sql =
+                            summaryQuery(
+                                    actor.tenantId(),
+                                    kind,
+                                    caseId,
+                                    statuses,
+                                    state,
+                                    cursor,
+                                    values);
+                    appendScope(sql, values, "r.scope_city", actor.cityCodes());
+                    appendScope(sql, values, "r.scope_station", actor.stationIds());
+                    sql.append(" ORDER BY r.record_id LIMIT ?");
+                    values.add(Math.addExact(limit, 1));
+                    List<Entity> records = tx.select(sql.toString(), values);
+                    boolean more = records.size() > limit;
+                    if (more) records.remove(records.size() - 1);
+                    String next = more ? records.get(records.size() - 1).id() : "";
+                    return new Page(List.copyOf(records), next);
+                });
+    }
+
+    public List<Entity> scopedSummaryRecent(RecordScope actor, String kind, int limit) {
+        validateLimit(limit, INTERNAL_LIMIT);
+        return read(
+                tx -> {
+                    List<Object> values = new ArrayList<>(List.of(actor.tenantId(), kind));
+                    StringBuilder sql =
+                            new StringBuilder(
+                                    "SELECT "
+                                            + summaryColumns()
+                                            + " FROM platform_records r WHERE r.tenant_id=? AND"
+                                            + " r.kind=?");
+                    appendScope(sql, values, "r.scope_city", actor.cityCodes());
+                    appendScope(sql, values, "r.scope_station", actor.stationIds());
+                    sql.append(" ORDER BY r.created_at DESC,r.record_id DESC LIMIT ?");
+                    values.add(limit);
+                    return tx.select(sql.toString(), values);
+                });
+    }
+
     public List<Entity> caseRecords(String tenant, String kind, String caseId, int limit) {
         return query(tenant, kind, caseId, Set.of(), null, "", limit);
     }
@@ -475,10 +541,10 @@ public class PlatformStore {
             OffsetDateTime now = now();
             String sql =
                     "INSERT INTO platform_records"
-                        + " (tenant_id,kind,record_id,record_version,created_at,updated_at,payload,"
+                        + " (tenant_id,kind,record_id,record_version,created_at,updated_at,payload,summary_payload,"
                         + " scope_city, scope_station, queue_priority, queue_due_at, case_id,"
                         + " order_id, complaint_type, record_status, record_state, risk_level,"
-                        + " assignee) VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                        + " assignee) VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, tenant);
                 statement.setString(2, kind);
@@ -486,7 +552,8 @@ public class PlatformStore {
                 statement.setObject(4, now);
                 statement.setObject(5, now);
                 statement.setString(6, JsonUtil.toJson(data));
-                project(statement, 7, tenant, kind, id, data);
+                statement.setString(7, JsonUtil.toJson(RecordSummaries.of(kind, data)));
+                project(statement, 8, tenant, kind, id, data);
                 statement.executeUpdate();
                 audit(
                         tenant,
@@ -523,7 +590,7 @@ public class PlatformStore {
             long nextVersion = Math.addExact(expectedVersion, 1);
             String sql =
                     "UPDATE platform_records SET"
-                        + " record_version=?,updated_at=?,payload=?,scope_city=?,"
+                        + " record_version=?,updated_at=?,payload=?,summary_payload=?,scope_city=?,"
                         + "scope_station=?,queue_priority=?,queue_due_at=?,case_id=?,order_id=?,"
                         + "complaint_type=?,record_status=?,record_state=?,risk_level=?,assignee=?"
                         + " WHERE tenant_id=? AND kind=? AND record_id=? AND record_version=?";
@@ -531,11 +598,12 @@ public class PlatformStore {
                 statement.setLong(1, nextVersion);
                 statement.setObject(2, now());
                 statement.setString(3, JsonUtil.toJson(data));
-                project(statement, 4, tenant, kind, id, data);
-                statement.setString(15, tenant);
-                statement.setString(16, kind);
-                statement.setString(17, id);
-                statement.setLong(18, expectedVersion);
+                statement.setString(4, JsonUtil.toJson(RecordSummaries.of(kind, data)));
+                project(statement, 5, tenant, kind, id, data);
+                statement.setString(16, tenant);
+                statement.setString(17, kind);
+                statement.setString(18, id);
+                statement.setLong(19, expectedVersion);
                 if (statement.executeUpdate() != 1) {
                     throw PlatformException.conflict(
                             "Concurrent update; refresh the current version");
@@ -757,6 +825,23 @@ public class PlatformStore {
                 throw databaseFailure(failure);
             }
         }
+    }
+
+    private static String summaryColumns() {
+        return "r.tenant_id,r.kind,r.record_id,r.record_version,r.created_at,r.updated_at,"
+                + "r.summary_payload AS payload";
+    }
+
+    private static StringBuilder summaryQuery(
+            String tenant,
+            String kind,
+            String caseId,
+            Set<String> statuses,
+            String state,
+            String cursor,
+            List<Object> values) {
+        StringBuilder sql = recordQuery(tenant, kind, caseId, statuses, state, cursor, values);
+        return sql.replace(0, "SELECT r.*".length(), "SELECT " + summaryColumns());
     }
 
     private static StringBuilder recordQuery(

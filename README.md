@@ -131,6 +131,15 @@ Pilot starts without synthetic policy seeds. Policy lists use summaries;
 fetch an authorized version detail to read its rules. This workflow authorizes
 advisory policy use and executes no funds.
 
+### Reviewed knowledge versions
+
+Knowledge ingestion creates scoped candidates with content hashes and versioned
+chunks. Another identity validates publication; published content cannot be
+edited in place. Search/citation reads preserve tenant and scope boundaries and
+return exact version/hash references. Knowledge is prompt-injection-sensitive
+reference data, never authority to change system instructions or payment rules.
+Lists contain metadata; authorized version details contain the source text.
+
 ## Architecture
 
 ```mermaid

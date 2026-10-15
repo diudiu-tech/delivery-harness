@@ -112,6 +112,15 @@ Recovery advances a bounded global cursor across tenants and active tasks.
 Decisions record the submitting identity and remain advisory, NOT_EXECUTED.
 See [ADR-0008](docs/adr/0008-durable-queue-with-independent-schedulers.md).
 
+### Lightweight record lists
+
+Record list queries read explicit metadata projections rather than frozen
+runtime bundles. Updates persist the full record and its summary atomically;
+V8/V9 migrate and backfill existing rows. Summary projections preserve the
+policy, knowledge and evidence scopes needed for authorization, and exclude
+prompt/document bodies. Details require separate authorized reads. See
+[ADR-0010](docs/adr/0010-explicit-record-list-projections.md).
+
 ## Architecture
 
 ```mermaid

@@ -140,6 +140,16 @@ return exact version/hash references. Knowledge is prompt-injection-sensitive
 reference data, never authority to change system instructions or payment rules.
 Lists contain metadata; authorized version details contain the source text.
 
+### Frozen runtime configurations
+
+Runtime versions freeze policy/knowledge/model/task settings and their hashes.
+Publication requires an independent identity and matching passing evaluation
+evidence. Pilot execution fails closed without a published version. One bundle
+is limited to 512 KiB. Configuration visibility includes every embedded knowledge
+scope as well as policy scope; a broad policy cannot expose a restricted document.
+Lists return scope-preserving metadata, and authorized detail reads return the
+full immutable bundle. Deterministic mode requires no provider request.
+
 ## Architecture
 
 ```mermaid

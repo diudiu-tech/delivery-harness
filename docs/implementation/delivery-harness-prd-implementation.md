@@ -2,7 +2,7 @@
 
 本文对应[产品 PRD](../prd/delivery-harness-product-prd.md)、[v2 API](../api/v2.md)和[试点运行手册](../operations/pilot-runbook.md)。更新日期：2026-10-15。
 
-原整体实现 PR #35 已标记不可合并。修复源码正按可独立构建的主题重新拆分；本文用于核对修复实现与后续 PR 的验收证据，不表示原 PR 或任一拆分 PR 已通过全部检查，也不替代产品联合评审。
+原整体实现 PR #35 已标记不可合并。修复源码已拆为 23 个按依赖排列的草稿 PR；本文用于核对实现与验收边界，具体整改入口见[审查整改索引](delivery-harness-review-remediation.md)。是否通过检查必须以对应提交的当前结果为准，本文不替代产品联合评审。
 
 本轮范围为可信决定、存储与审计、身份授权、案件复核、执行队列、版本质量管理和内部工作台。**FR-14 资金执行与实际留存删除均不在本轮实现范围；须在 M2 验收后单独立项，补充决策记录与验收方案。**人工批准和例外提议只形成内部审核记录，不办理赔付。
 
@@ -26,7 +26,7 @@
 | 方面 | 实现边界 |
 | --- | --- |
 | 模块 | common 定义 DTO、枚举、异常；core 承载工作流、运行时接口、JDBC 和业务服务；API 承载认证、类型化 HTTP 接口和静态工作台 |
-| 迁移 | core 类路径拥有 V1–V6 SQL/Java 迁移；测试直接运行 Flyway，不读取 API 相对路径或手工拆 SQL |
+| 迁移 | core 类路径拥有 V1–V9 SQL/Java 迁移，包含恢复索引与显式摘要投影回填；测试直接运行 Flyway，不读取 API 相对路径或手工拆 SQL |
 | 数据 | 记录 JSON 保存可扩展元数据；case/order/status/state/scope 及队列过滤字段使用 SQL 投影和索引；材料正文独立存放 |
 | 时间与分页 | 数据库时间戳按时间排序；审计游标同时绑定 created_at 与 event_id；过滤和权限范围在 SQL LIMIT 之前生效 |
 | 身份 | demo 显式 bearer + 本机 Host/Origin 白名单；pilot 使用 OIDC/JWT resource server，校验签名和可信 claims |

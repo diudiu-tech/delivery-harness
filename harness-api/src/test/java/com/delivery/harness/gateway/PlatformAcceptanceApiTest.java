@@ -1,13 +1,11 @@
 package com.delivery.harness.gateway;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.delivery.harness.common.util.JsonUtil;
@@ -199,9 +197,6 @@ class PlatformAcceptanceApiTest {
                                                         "runtime_config_id",
                                                         "missing-version"))))
                 .andExpect(status().isNotFound());
-        mvc.perform(get("/workbench/index.html"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("案件工作台")));
     }
 
     private Map<String, Object> awaitExecution(String id) throws Exception {

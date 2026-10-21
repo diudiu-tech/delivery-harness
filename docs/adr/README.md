@@ -18,3 +18,5 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 Write an ADR when a reviewer would reasonably ask "why didn't you just…?".
 Deleting a component, choosing not to adopt a technology, and accepting a
 known limitation all qualify. Routine implementation choices do not.
+
+- [0005 — Versioned persistent decision workbench](0005-versioned-persistent-decision-workbench.md)

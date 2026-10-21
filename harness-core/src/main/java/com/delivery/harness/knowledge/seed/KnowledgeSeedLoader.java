@@ -6,11 +6,14 @@ import com.delivery.harness.common.util.JsonUtil;
 import com.delivery.harness.knowledge.casemgmt.CaseBaseService;
 import com.delivery.harness.knowledge.rule.RuleBaseService;
 import com.fasterxml.jackson.core.type.TypeReference;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -22,22 +25,19 @@ import java.util.List;
 /**
  * Loads the synthetic rule and case base into memory at startup.
  *
- * <p>Before this existed, {@code RuleBaseService.save} and
- * {@code CaseBaseService.save} had no callers anywhere in the repository and
- * no API endpoint wrote to them. Both stores were therefore permanently empty,
- * which meant every analysis prompt carried an empty "适用规则与历史案例"
- * section and every response carried {@code "citations": []}. The knowledge
- * module contributed nothing to the default path.
+ * <p>Before this existed, {@code RuleBaseService.save} and {@code CaseBaseService.save} had no
+ * callers anywhere in the repository and no API endpoint wrote to them. Both stores were therefore
+ * permanently empty, which meant every analysis prompt carried an empty "适用规则与历史案例" section and
+ * every response carried {@code "citations": []}. The knowledge module contributed nothing to the
+ * default path.
  *
- * <p>The content is the same policy set that
- * {@code db/migration/V2__init_data.sql} described. That file was never
- * executed — the implementation is in memory and no migration runner was
- * configured — so it has been replaced by these JSON resources, which are
- * actually read.
+ * <p>The content is the same policy set that {@code db/migration/V2__init_data.sql} described. That
+ * file was never executed — the implementation is in memory and no migration runner was configured
+ * — so it has been replaced by these JSON resources, which are actually read.
  *
- * <p>Set {@code harness.knowledge.seed.enabled=false} to start with an empty
- * knowledge base, for example when loading a real policy set through the
- * ingestion API instead.
+ * <p>Set {@code harness.knowledge.seed.enabled=false} to start with an empty knowledge base, for
+ * example when loading a real policy set through the ingestion API instead. Pilot mode always
+ * starts without synthetic seed data.
  */
 @Slf4j
 @Component
@@ -53,9 +53,13 @@ public class KnowledgeSeedLoader {
     @Value("${harness.knowledge.seed.enabled:true}")
     private boolean seedEnabled;
 
+    @Value("${harness.mode:demo}")
+    private String mode = "demo";
+
     @EventListener(ApplicationReadyEvent.class)
+    @Order(-100)
     public void loadSeedData() {
-        if (!seedEnabled) {
+        if (!seedEnabled || !"demo".equals(mode)) {
             log.info("Knowledge seed disabled; rule and case base start empty");
             return;
         }
@@ -66,7 +70,10 @@ public class KnowledgeSeedLoader {
         List<CaseInfo> cases = read(CASES_RESOURCE, new TypeReference<List<CaseInfo>>() {});
         cases.forEach(caseBaseService::save);
 
-        log.info("Knowledge seed loaded: {} rules, {} cases (synthetic)", rules.size(), cases.size());
+        log.info(
+                "Knowledge seed loaded: {} rules, {} cases (synthetic)",
+                rules.size(),
+                cases.size());
     }
 
     private <T> List<T> read(String resourcePath, TypeReference<List<T>> typeRef) {

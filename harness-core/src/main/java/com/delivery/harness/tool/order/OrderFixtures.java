@@ -165,7 +165,7 @@ public final class OrderFixtures {
      * timeline runs backwards from it and a freshly generated fixture always
      * looks like an order that has just completed.
      */
-    static OrderInfo build(String orderId, LocalDateTime now) {
+    public static OrderInfo build(String orderId, LocalDateTime now) {
         Scenario s = scenarioFor(orderId);
 
         LocalDateTime delivered = now;
@@ -209,6 +209,7 @@ public final class OrderFixtures {
                 .estimatedDurationSeconds(s.promisedMinutes() * 60)
                 .actualDurationSeconds(s.actualMinutes() * 60)
                 .orderAmount(new BigDecimal(s.orderAmount()))
+                .refundableBalance(new BigDecimal(s.orderAmount()))
                 .deliveryFee(new BigDecimal("5.00"))
                 .stationId(s.stationId())
                 .stationName(s.stationName())

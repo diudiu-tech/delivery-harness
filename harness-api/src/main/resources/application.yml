@@ -15,6 +15,8 @@ server:
       force: true
 
 harness:
+  review:
+    approval-threshold: ${HARNESS_REVIEW_APPROVAL_THRESHOLD:10.00}
   llm:
     default-endpoint: ${HARNESS_LLM_ENDPOINT:http://localhost:11434}
     default-model: ${HARNESS_LLM_MODEL:qwen2.5:7b}

@@ -12,6 +12,7 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 | [0002](0002-rule-engine-owns-the-compensation-amount.md) | The rule engine owns the compensation amount, not the model | Accepted |
 | [0003](0003-no-vector-retrieval-at-this-corpus-size.md) | No vector retrieval at this corpus size | Accepted |
 | [0004](0004-three-maven-modules-instead-of-nine.md) | Three Maven modules instead of nine | Accepted |
+| [0005](0005-trusted-workflow-output-contract.md) | Keep decision authority in trusted workflow inputs and outputs | Proposed |
 
 ## When to write one
 

@@ -4,159 +4,159 @@ import com.delivery.harness.common.dto.OrderInfo;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
- * Derived timings for one order.
- *
- * <p>Splits an order into the four legs that a delivery operator actually
- * attributes delay to, so downstream steps have structured evidence instead of
- * a blob of timestamps:
- *
- * <ol>
- *   <li>dispatch wait — created to accepted (a capacity signal)</li>
- *   <li>to shop — accepted to arrived at shop (a distance/traffic signal)</li>
- *   <li>merchant prep — arrived at shop to picked up (a merchant signal)</li>
- *   <li>on road — picked up to delivered (a traffic/weather/route signal)</li>
- * </ol>
- *
- * <p>This is a deterministic computation over the order's own timestamps. It
- * is the baseline the model has to beat: if a model cannot outperform
- * "blame the longest leg", it is adding nothing.
- *
- * <p>Every field degrades to {@code 0} when the corresponding timestamps are
- * absent, and {@link #complete()} reports whether the full timeline was
- * available.
+ * Deterministic timings. The v1 view retains numeric compatibility; the v2 view preserves unknowns.
  */
 public final class OrderTimeline {
-
     public static final String LEG_DISPATCH_WAIT = "DISPATCH_WAIT";
     public static final String LEG_TO_SHOP = "TO_SHOP";
     public static final String LEG_MERCHANT_PREP = "MERCHANT_PREP";
     public static final String LEG_ON_ROAD = "ON_ROAD";
     public static final String LEG_NONE = "NONE";
+    private final Map<String, Long> seconds = new LinkedHashMap<>();
+    private final Map<String, Object> rawTimes = new LinkedHashMap<>();
+    private final List<String> qualityReasons = new ArrayList<>();
+    private boolean invalid;
+    private String overtimeStatus;
+    private Long overtimeSeconds;
 
-    private final long dispatchWaitMinutes;
-    private final long toShopMinutes;
-    private final long merchantPrepMinutes;
-    private final long onRoadMinutes;
-    private final long promisedMinutes;
-    private final long actualMinutes;
-    private final boolean complete;
-
-    private OrderTimeline(
-            long dispatchWaitMinutes,
-            long toShopMinutes,
-            long merchantPrepMinutes,
-            long onRoadMinutes,
-            long promisedMinutes,
-            long actualMinutes,
-            boolean complete) {
-        this.dispatchWaitMinutes = dispatchWaitMinutes;
-        this.toShopMinutes = toShopMinutes;
-        this.merchantPrepMinutes = merchantPrepMinutes;
-        this.onRoadMinutes = onRoadMinutes;
-        this.promisedMinutes = promisedMinutes;
-        this.actualMinutes = actualMinutes;
-        this.complete = complete;
-    }
+    private OrderTimeline() {}
 
     public static OrderTimeline of(OrderInfo order) {
-        if (order == null) {
-            return new OrderTimeline(0, 0, 0, 0, 0, 0, false);
+        OrderTimeline timeline = new OrderTimeline();
+        OrderInfo source = order == null ? new OrderInfo() : order;
+        timeline.rawTimes.put("create_time", source.getCreateTime());
+        timeline.rawTimes.put("accept_time", source.getAcceptTime());
+        timeline.rawTimes.put("arrive_shop_time", source.getArriveShopTime());
+        timeline.rawTimes.put("pickup_time", source.getPickupTime());
+        timeline.rawTimes.put("delivery_time", source.getDeliveryTime());
+        timeline.rawTimes.put("expected_delivery_time", source.getExpectedDeliveryTime());
+        timeline.add("dispatch_wait", source.getCreateTime(), source.getAcceptTime());
+        timeline.add("to_shop", source.getAcceptTime(), source.getArriveShopTime());
+        timeline.add("merchant_prep", source.getArriveShopTime(), source.getPickupTime());
+        timeline.add("on_road", source.getPickupTime(), source.getDeliveryTime());
+        timeline.add("promised", source.getCreateTime(), source.getExpectedDeliveryTime());
+        timeline.add("actual", source.getCreateTime(), source.getDeliveryTime());
+        boolean unsupported =
+                source.getStatus() != null
+                        && !List.of("DELIVERED", "COMPLETED", "FINISHED")
+                                .contains(source.getStatus().toUpperCase(Locale.ROOT));
+        if (unsupported) {
+            timeline.overtimeStatus = "NOT_APPLICABLE";
+            timeline.qualityReasons.add("order_not_completed");
+        } else if (source.getExpectedDeliveryTime() == null
+                || source.getDeliveryTime() == null
+                || (source.getCreateTime() != null
+                        && (source.getDeliveryTime().isBefore(source.getCreateTime())
+                                || source.getExpectedDeliveryTime()
+                                        .isBefore(source.getCreateTime())))) {
+            timeline.overtimeStatus = "UNKNOWN";
+        } else {
+            long late =
+                    Duration.between(source.getExpectedDeliveryTime(), source.getDeliveryTime())
+                            .getSeconds();
+            timeline.overtimeSeconds = Math.max(0, late);
+            timeline.overtimeStatus = late > 0 ? "LATE" : "ON_TIME";
         }
-        boolean complete = order.getCreateTime() != null
-                && order.getAcceptTime() != null
-                && order.getArriveShopTime() != null
-                && order.getPickupTime() != null
-                && order.getDeliveryTime() != null
-                && order.getExpectedDeliveryTime() != null;
-
-        return new OrderTimeline(
-                minutesBetween(order.getCreateTime(), order.getAcceptTime()),
-                minutesBetween(order.getAcceptTime(), order.getArriveShopTime()),
-                minutesBetween(order.getArriveShopTime(), order.getPickupTime()),
-                minutesBetween(order.getPickupTime(), order.getDeliveryTime()),
-                minutesBetween(order.getCreateTime(), order.getExpectedDeliveryTime()),
-                minutesBetween(order.getCreateTime(), order.getDeliveryTime()),
-                complete);
+        return timeline;
     }
 
-    private static long minutesBetween(LocalDateTime from, LocalDateTime to) {
+    private void add(String leg, LocalDateTime from, LocalDateTime to) {
         if (from == null || to == null) {
-            return 0L;
+            seconds.put(leg, null);
+            qualityReasons.add(leg + ":missing_endpoint");
+        } else if (to.isBefore(from)) {
+            seconds.put(leg, null);
+            invalid = true;
+            qualityReasons.add(leg + ":reversed_timestamps");
+        } else {
+            seconds.put(leg, Duration.between(from, to).getSeconds());
         }
-        return Math.max(0L, Duration.between(from, to).toMinutes());
+    }
+
+    private long minutes(String leg) {
+        return seconds.get(leg) == null ? 0 : seconds.get(leg) / 60;
     }
 
     public long dispatchWaitMinutes() {
-        return dispatchWaitMinutes;
+        return minutes("dispatch_wait");
     }
 
     public long toShopMinutes() {
-        return toShopMinutes;
+        return minutes("to_shop");
     }
 
     public long merchantPrepMinutes() {
-        return merchantPrepMinutes;
+        return minutes("merchant_prep");
     }
 
     public long onRoadMinutes() {
-        return onRoadMinutes;
+        return minutes("on_road");
     }
 
     public long promisedMinutes() {
-        return promisedMinutes;
+        return minutes("promised");
     }
 
     public long actualMinutes() {
-        return actualMinutes;
+        return minutes("actual");
     }
 
     public boolean complete() {
-        return complete;
+        return !invalid && seconds.values().stream().allMatch(Objects::nonNull);
     }
 
-    /** Minutes past the promised delivery time; never negative. */
+    public String qualityStatus() {
+        return invalid ? "INVALID" : complete() ? "VALID" : "PARTIAL";
+    }
+
+    public String overtimeStatus() {
+        return overtimeStatus;
+    }
+
+    public Long overtimeSeconds() {
+        return overtimeSeconds;
+    }
+
     public long overtimeMinutes() {
-        return Math.max(0L, actualMinutes - promisedMinutes);
+        return overtimeSeconds == null ? 0 : overtimeSeconds / 60;
     }
 
     public boolean overtime() {
-        return overtimeMinutes() > 0;
+        return "LATE".equals(overtimeStatus);
     }
 
-    /**
-     * The leg that consumed the largest share of elapsed time.
-     *
-     * <p>Deliberately simple. It is a baseline for the model to beat and an
-     * anchor for the evidence chain, not an attribution engine: a long road
-     * leg in heavy rain and a long road leg on a clear day look identical
-     * here, which is exactly the ambiguity the model is asked to resolve.
-     */
+    /** Historical single-leg baseline, retained for comparison. */
     public String dominantLeg() {
         if (!overtime()) {
             return LEG_NONE;
         }
-        long max = Math.max(Math.max(dispatchWaitMinutes, toShopMinutes),
-                Math.max(merchantPrepMinutes, onRoadMinutes));
-        if (max == 0L) {
+        long max =
+                Math.max(
+                        Math.max(dispatchWaitMinutes(), toShopMinutes()),
+                        Math.max(merchantPrepMinutes(), onRoadMinutes()));
+        if (max == 0) {
             return LEG_NONE;
         }
-        if (max == merchantPrepMinutes) {
+        if (max == merchantPrepMinutes()) {
             return LEG_MERCHANT_PREP;
         }
-        if (max == dispatchWaitMinutes) {
+        if (max == dispatchWaitMinutes()) {
             return LEG_DISPATCH_WAIT;
         }
-        if (max == onRoadMinutes) {
+        if (max == onRoadMinutes()) {
             return LEG_ON_ROAD;
         }
         return LEG_TO_SHOP;
     }
 
-    /** Chinese label for {@link #dominantLeg()}, used to seed retrieval queries. */
     public String dominantLegLabel() {
         return switch (dominantLeg()) {
             case LEG_MERCHANT_PREP -> "商家出餐慢";
@@ -167,19 +167,47 @@ public final class OrderTimeline {
         };
     }
 
-    /** Flat view for prompts, step outputs and evaluation. */
     public Map<String, Object> asMap() {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("dispatch_wait_minutes", dispatchWaitMinutes);
-        map.put("to_shop_minutes", toShopMinutes);
-        map.put("merchant_prep_minutes", merchantPrepMinutes);
-        map.put("on_road_minutes", onRoadMinutes);
-        map.put("promised_minutes", promisedMinutes);
-        map.put("actual_minutes", actualMinutes);
+        seconds.forEach((leg, value) -> map.put(leg + "_minutes", minutes(leg)));
         map.put("overtime_minutes", overtimeMinutes());
         map.put("dominant_leg", dominantLeg());
         map.put("dominant_leg_label", dominantLegLabel());
-        map.put("timeline_complete", complete);
+        map.put("timeline_complete", complete());
+        return map;
+    }
+
+    public Map<String, Object> asTrustedMap() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("schema_version", "2.0");
+        seconds.forEach(
+                (leg, value) -> {
+                    map.put(leg + "_seconds", value);
+                    map.put(leg + "_minutes", value == null ? null : value / 60.0);
+                });
+        map.put("overtime_seconds", overtimeSeconds);
+        map.put("overtime_minutes", overtimeSeconds == null ? null : overtimeSeconds / 60.0);
+        map.put("overtime_status", overtimeStatus);
+        map.put("quality_status", qualityStatus());
+        map.put("quality_reasons", List.copyOf(qualityReasons));
+        map.put("raw_timestamps", new LinkedHashMap<>(rawTimes));
+        map.put("time_reference", "LEGACY_LOCAL_TIME");
+        map.put("baseline_version", "longest_leg_seconds_v2");
+        List<String> tied = new ArrayList<>();
+        if (complete() && overtime()) {
+            long max =
+                    List.of("dispatch_wait", "to_shop", "merchant_prep", "on_road").stream()
+                            .mapToLong(seconds::get)
+                            .max()
+                            .orElse(0);
+            for (String leg : List.of("dispatch_wait", "to_shop", "merchant_prep", "on_road")) {
+                if (seconds.get(leg) == max) {
+                    tied.add(leg.toUpperCase(Locale.ROOT));
+                }
+            }
+        }
+        map.put("dominant_legs", tied);
+        map.put("responsibility_determined", false);
         return map;
     }
 }

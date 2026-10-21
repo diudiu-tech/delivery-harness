@@ -23,9 +23,25 @@
 - 内存评测运行；当用例未声明期望时，评分器报告「未度量」而不是满分。
 - 请求 Trace ID、真实的分步耗时、有界 Trace 存储、按场景的指标、反馈存储和建议式输出检查。
 - 可选依赖不可用但确定性结果仍可返回时，工作流状态为 `DEGRADED`；受影响步骤会记录为失败，避免与完整成功混淆。
-- 本地 Ollama 配置、116 项测试、Maven Wrapper 和 GitHub Actions CI。
+- 本地 Ollama 配置、回归测试、Maven Wrapper 和 GitHub Actions CI。
 
 以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
+
+### 可信决策语义（破坏性变更）
+
+时间轴保留秒级精度；缺少端点或时间倒序在可信输出中保持未知，不会被当作
+零时长或确定的赔付依据。小于一分钟的正向超时也算超时，旧版分钟计数仍为
+整数。模型引用会按实际使用的证据与政策快照核验；面向客户的话术由服务端
+根据权威决定及复核状态生成。
+
+只有模型不可用而确定性结果仍可用时，响应从 HTTP 502 改为 HTTP 200 +
+`DEGRADED`。客户端必须检查执行状态和证据核验结果；缺失政策或事实不会
+变成已批准的赔付。赔付方式统一为枚举 ID，退款不得超过已核实可退余额。
+旧字段 `suggested_amount` 可能仅为候选金额；缺少确定依据时，
+`authoritative_amount` 保持 `null`。审批阈值只使用 `HARNESS_REVIEW_APPROVAL_THRESHOLD` /
+`harness.review.approval-threshold`，默认 `10.00`；旧
+`harness.compensation.approval-threshold` 属性被替代。
+设计取舍见 [ADR-0005](docs/adr/0005-trusted-workflow-output-contract.md)。
 
 ## 架构
 
@@ -176,7 +192,7 @@ curl --fail-with-body \
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `harness.compensation.approval-threshold` | `10.0` | 赔付金额达到该值需人工审批 |
+| `harness.review.approval-threshold` | `10.0` | 赔付金额达到该值需人工审批 |
 | `harness.knowledge.seed.enabled` | `true` | 启动时载入合成规则库与案例库 |
 | `harness.eval.seed.enabled` | `true` | 启动时载入初始评测用例 |
 | `harness.observe.max-traces` | `500` | 内存 Trace 环形缓冲容量 |
@@ -199,7 +215,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 ./mvnw clean verify
 ```
 
-当前共 116 项测试。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
+单元及 API 回归测试覆盖两条工作流。两条工作流都有基于桩模型传输层的端到端覆盖，因此测试不依赖 Ollama 和 Docker。其中最关键的一条是 `buildsDifferentEvidenceForDifferentOrders`：它断言两个不同订单会产生两份不同的 Prompt——其余所有度量都建立在这个性质之上。CI 会在每次 Push 和 Pull Request 上运行同样的 Maven 校验。
 
 ## 安全与数据处理
 

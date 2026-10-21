@@ -34,7 +34,7 @@ import org.springframework.test.web.servlet.MvcResult;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(StubLlmClientConfig.class)
+@Import({StubLlmClientConfig.class, DemoApiTestSupport.class})
 class ObserveAndEvalApiTest {
 
     private static final String INVALID_REFERENCES_ANSWER =

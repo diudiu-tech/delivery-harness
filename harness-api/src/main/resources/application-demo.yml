@@ -1,0 +1,6 @@
+harness:
+  security:
+    # Blank selects the five public synthetic identities defined by the demo directory.
+    # Every request still needs an explicit bearer header and a literal loopback Host/Origin.
+    # A custom hash list replaces those identities; [] explicitly disables all demo tokens.
+    demo-identities: '${HARNESS_DEMO_IDENTITIES:}'

@@ -45,6 +45,11 @@ jobs:
       - name: Check formatting
         run: ./tools/check-format.sh
 
+      - name: Verify workbench state and request contracts
+        run: |
+          node --check harness-api/src/main/resources/static/workbench/app.js
+          node tools/check-workbench-state.cjs
+
       # JaCoCo's threshold is enforced in the verify phase, so a coverage
       # failure reports last, after the tests it depends on.
       - name: Build and test
@@ -57,8 +62,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
-          path: '**/target/site/jacoco/'
+          path: |
+            **/target/site/jacoco/
+            **/target/site/jacoco-aggregate/
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload generated API contract
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-openapi
+          path: harness-api/target/generated-api/openapi.v2.json
+          if-no-files-found: error
           retention-days: 7
 
       - name: Upload test reports

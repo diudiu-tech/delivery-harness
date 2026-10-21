@@ -132,6 +132,16 @@ review; missing legacy authorship requires a fresh analysis. Export uses
 `POST /api/v2/cases/{id}/export`, records an audit receipt and executes no payment;
 GET returns 405. See [ADR-0007](docs/adr/0007-independent-case-and-decision-reviewers.md).
 
+### Durable execution queue
+
+V2 analysis freezes order evidence and runtime inputs before enqueueing.
+Idempotency, bounded capacity, fencing and absolute deadlines guard durable
+execution state. Heartbeat, deadline and recovery schedulers are independent;
+completion locks the execution row to avoid normal heartbeat conflicts.
+Recovery advances a bounded global cursor across tenants and active tasks.
+Decisions record the submitting identity and remain advisory, NOT_EXECUTED.
+See [ADR-0008](docs/adr/0008-durable-queue-with-independent-schedulers.md).
+
 ## Architecture
 
 ```mermaid

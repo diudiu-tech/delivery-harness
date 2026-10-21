@@ -39,6 +39,11 @@ harness:
     order-endpoint: ${HARNESS_ORDER_ENDPOINT:}
     allowed-hosts: ${HARNESS_ORDER_ALLOWED_HOSTS:}
     token: ${HARNESS_ORDER_TOKEN:}
+  execution:
+    deterministic-only: ${HARNESS_DETERMINISTIC_ONLY:false}
+    online-workers: ${HARNESS_EXECUTION_WORKERS:2}
+    online-queue: ${HARNESS_EXECUTION_QUEUE:50}
+    deadline-seconds: ${HARNESS_EXECUTION_DEADLINE_SECONDS:15}
   review:
     approval-threshold: ${HARNESS_REVIEW_APPROVAL_THRESHOLD:10.00}
   llm:

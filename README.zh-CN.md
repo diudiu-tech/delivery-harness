@@ -123,6 +123,13 @@ v2 分析入队前冻结订单证据和运行输入，使用幂等、容量边�
 决定作者绑定提交者，复核结果仍为建议且 `NOT_EXECUTED`。见
 [ADR-0008](docs/adr/0008-durable-queue-with-independent-schedulers.md)。
 
+### 轻量记录列表
+
+列表在 SQL 中直接读取摘要投影，不加载完整运行快照；记录与摘要在同一事务
+更新，V8/V9 负责迁移与历史回填。摘要保留授权所需的政策、知识和证据范围，
+不携带提示词或文档正文；详情仍需单独授权读取。见
+[ADR-0010](docs/adr/0010-explicit-record-list-projections.md)。
+
 ## 架构
 
 ```mermaid

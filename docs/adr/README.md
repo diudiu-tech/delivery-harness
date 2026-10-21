@@ -17,6 +17,7 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 | [0007](0007-independent-case-and-decision-reviewers.md) | Independent case and decision reviewers | Proposed |
 | [0008](0008-durable-queue-with-independent-schedulers.md) | Durable queue with independent schedulers | Proposed |
 | [0009](0009-oidc-identities-and-local-demo-access.md) | Verified OIDC identities and explicit local demo access | Proposed |
+| [0010](0010-explicit-record-list-projections.md) | Explicit record summaries for bounded list reads | Proposed |
 
 ## When to write one
 

@@ -159,6 +159,9 @@ Blind datasets require reviewed labels; execution completion alone cannot pass
 the publication gate. Scope checks cover runtime knowledge and every sample.
 Restarted runs fail explicitly with frozen-snapshot retry guidance. GET does not
 seed defaults; synthetic evaluation datasets are initialized only in demo startup.
+Result pages preserve sample IDs, execution status and both candidate/baseline
+score summaries, including NOT_MEASURED and gate failure codes. They omit full
+evidence and execution bodies; V10 backfills this metadata for existing results.
 
 ### Verified feedback lifecycle
 

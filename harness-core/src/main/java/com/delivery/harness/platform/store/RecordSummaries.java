@@ -72,6 +72,16 @@ public final class RecordSummaries {
             result.put("runtime_visibility", runtimeScopes(map(data.get("resolved_config"))));
             result.put("evidence_scopes", evidenceScopes(map(data.get("dataset_snapshot"))));
         }
+        if (kind.startsWith("eval_result:")) {
+            scalar(result, "run_id", data.get("run_id"));
+            scalar(result, "sample_id", map(data.get("sample")).get("sample_id"));
+            Map<String, Object> execution = map(data.get("execution"));
+            scalar(result, "execution_status", execution.get("status"));
+            scalar(result, "replay_equal", data.get("replay_equal"));
+            for (String key : List.of("scores", "baseline_scores")) {
+                result.put(key, scoreSummary(map(data.get(key))));
+            }
+        }
         if (data.get("model_call_metadata") instanceof Map<?, ?> metadata) {
             Map<String, Object> cost = new LinkedHashMap<>();
             for (String key :
@@ -79,6 +89,41 @@ public final class RecordSummaries {
                 scalar(cost, key, metadata.get(key));
             }
             result.put("model_call_metadata", cost);
+        }
+        return result;
+    }
+
+    private static Map<String, Object> scoreSummary(Map<String, Object> scores) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (String key :
+                List.of(
+                        "scorer_version",
+                        "measurement_status",
+                        "measured_dimensions",
+                        "hard_gate_passed")) {
+            scalar(result, key, scores.get(key));
+        }
+        Map<String, Object> measurements = new LinkedHashMap<>();
+        map(scores.get("measurements"))
+                .forEach(
+                        (dimension, value) -> {
+                            Map<String, Object> measurement = new LinkedHashMap<>();
+                            Map<String, Object> source = map(value);
+                            for (String key :
+                                    List.of(
+                                            "status",
+                                            "pass",
+                                            "exact_match",
+                                            "precision",
+                                            "recall")) {
+                                scalar(measurement, key, source.get(key));
+                            }
+                            measurements.put(dimension, measurement);
+                        });
+        result.put("measurements", measurements);
+        if (scores.get("hard_failures") instanceof Collection<?> failures) {
+            result.put(
+                    "hard_failures", failures.stream().filter(String.class::isInstance).toList());
         }
         return result;
     }

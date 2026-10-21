@@ -1,6 +1,15 @@
 spring:
   application:
     name: delivery-harness
+  datasource:
+    url: ${HARNESS_DATABASE_URL:jdbc:h2:mem:harness;DB_CLOSE_DELAY=-1}
+    username: ${HARNESS_DATABASE_USERNAME:sa}
+    password: ${HARNESS_DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+  flyway:
+    enabled: true
   jackson:
     default-property-inclusion: non_null
     serialization:

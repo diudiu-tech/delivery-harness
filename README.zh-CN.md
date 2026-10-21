@@ -25,7 +25,40 @@
 - 可选依赖不可用但确定性结果仍可返回时，工作流状态为 `DEGRADED`；受影响步骤会记录为失败，避免与完整成功混淆。
 - 本地 Ollama 配置、回归测试、Maven Wrapper 和 GitHub Actions CI。
 
-以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
+以下能力**尚未实现**：自主 Agent 规划、真实业务工具集成、经生产验证的持久化存储、向量 Embedding/Milvus RAG、鉴权、限流、分布式追踪、自动执行赔付。详见[已知限制](#已知限制)。
+
+### 可信决策语义（破坏性变更）
+
+时间轴保留秒级精度；缺少端点或时间倒序在可信输出中保持未知，不会被当作
+零时长或确定的赔付依据。小于一分钟的正向超时也算超时，旧版分钟计数仍为
+整数。模型引用会按实际使用的证据与政策快照核验；面向客户的话术由服务端
+根据权威决定及复核状态生成。
+
+只有模型不可用而确定性结果仍可用时，响应从 HTTP 502 改为 HTTP 200 +
+`DEGRADED`。客户端必须检查执行状态和证据核验结果；缺失政策或事实不会
+变成已批准的赔付。赔付方式统一为枚举 ID，退款不得超过已核实可退余额。
+旧字段 `suggested_amount` 可能仅为候选金额；缺少确定依据时，
+`authoritative_amount` 保持 `null`。审批阈值只使用 `HARNESS_REVIEW_APPROVAL_THRESHOLD` /
+`harness.review.approval-threshold`，默认 `10.00`；旧
+`harness.compensation.approval-threshold` 属性被替代。
+设计取舍见 [ADR-0005](docs/adr/0005-trusted-workflow-output-contract.md)。
+
+### 模型调用边界
+
+模型调用使用一个覆盖上传、响应头、响应体及重试的总截止时间；响应体达到
+1 MiB 即停止接收，取消会中断待完成调用。版本化运行绑定最多允许两次重试，
+仅限连接/超时及 HTTP 429/502/503/504，且共享原截止时间；旧版调用不重试。
+pilot 需要显式设置 `HARNESS_LLM_ALLOWED_HOSTS` 并使用 HTTPS（测试可显式
+允许回环 HTTP），不跟随重定向。代码约束保持 system 优先级，可配任务提示词
+使用更低优先级。
+
+### 索引存储基础
+
+平台记录和审计使用 JDBC 与 core 模块内的 Flyway 迁移；附件正文与索引元数据
+分开存放。读取不提交事务，写入、乐观锁与审计共用事务。审计使用时间戳加事件
+ID 排序并在 SQL 中按授权范围分页。默认 H2 仅为内存演示；持久化部署需配置
+`HARNESS_DATABASE_URL`、用户名和密码。已提供 PostgreSQL 驱动，但 H2 迁移
+测试不能证明真实 PostgreSQL 部署已验收。见 [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md)。
 
 ### 可信决策语义（破坏性变更）
 
@@ -244,7 +277,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 - 评测运行中的 `modelVersion` 与 `promptVersion` 当前只是记录用的元数据，不会切换运行时模型或修改工作流 Prompt；比较运行时请通过部署配置固定它们。
 - `needs_human_review` 与 `approval_required` 由 Guardrail 结果、解析是否成功、模型置信度和是否与基线一致推导得出。这是「如实报告」而非「授权」：系统不执行任何付款。
 - Guardrail 会在工作流步骤和最终输出中返回通过/失败，但不能替代人工复核。
-- 当前没有持久化层。此前版本附带过一份从不执行的 PostgreSQL Schema，已删除，以免让读者误以为持久化已存在。
+- JDBC/Flyway 已提供平台存储基础；旧版工作流知识、评测及 Trace 仍在内存。配置 PostgreSQL 后仍需单独验证迁移与恢复。
 
 ## Roadmap
 

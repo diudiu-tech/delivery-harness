@@ -236,6 +236,14 @@ The UI uses textContent and same-origin assets, with no external scripts or
 payment/deletion controls. Run `node tools/check-workbench-state.cjs` for the
 browser-state/serialization regressions alongside Maven API verification.
 
+### Coverage verification
+
+The single core-only LINE coverage floor is `0.70` in the root POM. Normal
+`./mvnw clean verify` enforces it; the API module additionally publishes
+`target/site/jacoco-aggregate/` for cross-module exercise. These reports use
+different denominators and must not be presented as interchangeable quality or
+production-readiness claims. See [CONTRIBUTING](CONTRIBUTING.md).
+
 ## Architecture
 
 ```mermaid

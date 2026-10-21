@@ -4,60 +4,147 @@
     "ruleName": "严重超时赔付",
     "ruleType": "compensation",
     "category": "超时赔付",
-    "content": "超时30分钟以上，赔付订单金额的50%，最高不超过20元。需人工审批。",
+    "content": "超时按完整分钟向下取整，31分钟及以上，赔付订单金额的50%，最高20元。需人工审批。",
     "priority": 100,
     "enabled": true,
-    "tags": ["超时", "赔付", "严重"],
-    "conditions": {"complaint_type": "OVERTIME", "min_overtime_minutes": 31},
-    "actions": {"amount_type": "PERCENT_CAPPED", "rate": 0.50, "cap": 20.00, "method": "原路退款", "confidence": "HIGH", "approval_required": true}
+    "tags": [
+      "超时",
+      "赔付",
+      "严重"
+    ],
+    "conditions": {
+      "complaint_type": "OVERTIME",
+      "min_overtime_minutes": 31
+    },
+    "actions": {
+      "amount_type": "PERCENT_CAPPED",
+      "rate": 0.5,
+      "cap": 20.0,
+      "method": "原路退款",
+      "confidence": "HIGH",
+      "approval_required": true
+    },
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "COMP-002",
     "ruleName": "一般超时赔付",
     "ruleType": "compensation",
     "category": "超时赔付",
-    "content": "超时15至30分钟，赔付5元优惠券。",
+    "content": "超时按完整分钟向下取整，16至30分钟，赔付5元优惠券。",
     "priority": 90,
     "enabled": true,
-    "tags": ["超时", "赔付", "一般"],
-    "conditions": {"complaint_type": "OVERTIME", "min_overtime_minutes": 16, "max_overtime_minutes": 30},
-    "actions": {"amount_type": "FIXED", "amount": 5.00, "method": "发放优惠券", "confidence": "HIGH", "approval_required": false}
+    "tags": [
+      "超时",
+      "赔付",
+      "一般"
+    ],
+    "conditions": {
+      "complaint_type": "OVERTIME",
+      "min_overtime_minutes": 16,
+      "max_overtime_minutes": 30
+    },
+    "actions": {
+      "amount_type": "FIXED",
+      "amount": 5.0,
+      "method": "发放优惠券",
+      "confidence": "HIGH",
+      "approval_required": false
+    },
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "COMP-003",
     "ruleName": "轻微超时赔付",
     "ruleType": "compensation",
     "category": "超时赔付",
-    "content": "超时15分钟以内，致歉并赠送1元红包。",
+    "content": "超时按完整分钟向下取整，1至15分钟，致歉并赠送1元红包。",
     "priority": 80,
     "enabled": true,
-    "tags": ["超时", "赔付", "轻微"],
-    "conditions": {"complaint_type": "OVERTIME", "min_overtime_minutes": 1, "max_overtime_minutes": 15},
-    "actions": {"amount_type": "FIXED", "amount": 1.00, "method": "红包", "confidence": "MEDIUM", "approval_required": false}
+    "tags": [
+      "超时",
+      "赔付",
+      "轻微"
+    ],
+    "conditions": {
+      "complaint_type": "OVERTIME",
+      "min_overtime_minutes": 1,
+      "max_overtime_minutes": 15
+    },
+    "actions": {
+      "amount_type": "FIXED",
+      "amount": 1.0,
+      "method": "红包",
+      "confidence": "MEDIUM",
+      "approval_required": false
+    },
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "COMP-006",
     "ruleName": "未超时不予赔付",
     "ruleType": "compensation",
     "category": "超时赔付",
-    "content": "实际送达未超过承诺时间，不触发超时赔付。",
+    "content": "超时按完整分钟向下取整，0分钟不触发本演示政策赔付；保留原始秒数及真实超时状态。",
     "priority": 70,
     "enabled": true,
-    "tags": ["超时", "无异常"],
-    "conditions": {"complaint_type": "OVERTIME", "max_overtime_minutes": 0},
-    "actions": {"amount_type": "FIXED", "amount": 0.00, "method": "无需赔付", "confidence": "HIGH", "approval_required": false}
+    "tags": [
+      "超时",
+      "无异常"
+    ],
+    "conditions": {
+      "complaint_type": "OVERTIME",
+      "max_overtime_minutes": 0
+    },
+    "actions": {
+      "amount_type": "FIXED",
+      "amount": 0.0,
+      "method": "无需赔付",
+      "confidence": "HIGH",
+      "approval_required": false
+    },
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "COMP-004",
     "ruleName": "餐品洒漏赔付",
     "ruleType": "compensation",
     "category": "餐品问题",
-    "content": "餐品洒漏导致不可食用，全额退款；部分洒漏，赔付订单金额50%。需人工核实照片证据。",
+    "content": "经人工核验材料，餐品完全损坏全额退款；部分损坏赔付订单金额50%，最高20元。未核验材料只显示候选金额。",
     "priority": 100,
     "enabled": true,
-    "tags": ["餐品", "洒漏", "赔付"],
-    "conditions": {"complaint_type": "DAMAGED"},
-    "actions": {"amount_type": "DAMAGE_LEVEL", "partial_rate": 0.50, "partial_cap": 20.00, "method": "原路退款", "confidence": "LOW", "approval_required": true}
+    "tags": [
+      "餐品",
+      "洒漏",
+      "赔付"
+    ],
+    "conditions": {
+      "complaint_type": "DAMAGED"
+    },
+    "actions": {
+      "amount_type": "DAMAGE_LEVEL",
+      "partial_rate": 0.5,
+      "partial_cap": 20.0,
+      "method": "原路退款",
+      "confidence": "LOW",
+      "approval_required": true
+    },
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "COMP-005",
@@ -67,9 +154,24 @@
     "content": "送错订单，优先补送正确订单，同时赔付5元优惠券。",
     "priority": 95,
     "enabled": true,
-    "tags": ["错单", "赔付"],
-    "conditions": {"complaint_type": "WRONG_ORDER"},
-    "actions": {"amount_type": "FIXED", "amount": 5.00, "method": "补送并发放优惠券", "confidence": "MEDIUM", "approval_required": false}
+    "tags": [
+      "错单",
+      "赔付"
+    ],
+    "conditions": {
+      "complaint_type": "WRONG_ORDER"
+    },
+    "actions": {
+      "amount_type": "FIXED",
+      "amount": 5.0,
+      "method": "补送并发放优惠券",
+      "confidence": "MEDIUM",
+      "approval_required": false
+    },
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "ANA-001",
@@ -79,7 +181,16 @@
     "content": "骑手到店至取餐的等待时长（merchant_prep_minutes）超过站点平均值2倍以上时，判定商家出餐慢为超时主因。",
     "priority": 100,
     "enabled": true,
-    "tags": ["超时", "归因", "商家", "商家出餐慢"]
+    "tags": [
+      "超时",
+      "归因",
+      "商家",
+      "商家出餐慢"
+    ],
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "ANA-002",
@@ -89,7 +200,16 @@
     "content": "站点运力比（capacity_ratio）超过0.85，且下单至接单等待时长（dispatch_wait_minutes）显著高于站点均值时，判定运力不足为超时主因。",
     "priority": 90,
     "enabled": true,
-    "tags": ["超时", "归因", "运力", "运力不足"]
+    "tags": [
+      "超时",
+      "归因",
+      "运力",
+      "运力不足"
+    ],
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "ANA-003",
@@ -99,17 +219,37 @@
     "content": "当日有暴雨、暴雪或大风预警，且路途耗时（on_road_minutes）显著超过基准ETA时，判定天气异常为超时主因。",
     "priority": 85,
     "enabled": true,
-    "tags": ["超时", "归因", "天气", "暴雨", "路途耗时长"]
+    "tags": [
+      "超时",
+      "归因",
+      "天气",
+      "暴雨",
+      "路途耗时长"
+    ],
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "ANA-004",
     "ruleName": "超时归因-骑手绕路",
     "ruleType": "analysis",
     "category": "超时归因",
-    "content": "路途耗时长且天气正常、路况畅通时，路途耗时（on_road_minutes）显著超过基准ETA，判定骑手绕路或中途接其他单为超时主因。",
+    "content": "路途耗时长而天气正常时，只形成待核验假设；必须有订单发生时段的轨迹、路况与并单证据，才能讨论绕路或并单原因。",
     "priority": 80,
     "enabled": true,
-    "tags": ["超时", "归因", "骑手", "绕路", "路途耗时长"]
+    "tags": [
+      "超时",
+      "归因",
+      "骑手",
+      "绕路",
+      "路途耗时长"
+    ],
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "ANA-005",
@@ -119,7 +259,16 @@
     "content": "接单至到店时长（to_shop_minutes）明显高于该距离的合理值时，判定骑手到店慢为超时主因，需结合骑手当时并单情况核实。",
     "priority": 75,
     "enabled": true,
-    "tags": ["超时", "归因", "骑手", "骑手到店慢"]
+    "tags": [
+      "超时",
+      "归因",
+      "骑手",
+      "骑手到店慢"
+    ],
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   },
   {
     "ruleId": "ANA-006",
@@ -129,6 +278,14 @@
     "content": "实际送达时间未超过承诺时间时，判定为无异常，不得给出超时归因结论，也不触发赔付。",
     "priority": 120,
     "enabled": true,
-    "tags": ["正常单核查", "无异常", "归因"]
+    "tags": [
+      "正常单核查",
+      "无异常",
+      "归因"
+    ],
+    "version": "1.0.0",
+    "lifecycle": "PUBLISHED",
+    "currency": "CNY",
+    "effectiveFrom": "2020-01-01T00:00:00Z"
   }
 ]

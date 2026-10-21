@@ -69,6 +69,7 @@ public class OfflineEvaluator {
                 .completedCases(0)
                 .succeededCases(0)
                 .failedCases(0)
+                .degradedCases(0)
                 .status(HarnessConstants.STATUS_RUNNING)
                 .startedAt(LocalDateTime.now())
                 .build();
@@ -83,6 +84,9 @@ public class OfflineEvaluator {
                 result.setRunId(runId);
                 results.add(result);
                 run.setCompletedCases(run.getCompletedCases() + 1);
+                if (HarnessConstants.STATUS_DEGRADED.equals(result.getExecutionStatus())) {
+                    run.setDegradedCases(run.getDegradedCases() + 1);
+                }
                 if (result.getErrorMessage() == null || result.getErrorMessage().isBlank()) {
                     run.setSucceededCases(run.getSucceededCases() + 1);
                 } else {
@@ -149,6 +153,7 @@ public class OfflineEvaluator {
                         .resultId(UUID.randomUUID().toString())
                         .caseId(evalCase.getCaseId())
                         .traceId(traceId)
+                        .executionStatus(execution == null ? HarnessConstants.STATUS_FAILED : execution.getStatus())
                         .actualOutput(actualOutput)
                         .errorMessage(errorMessage)
                         .durationMs(elapsedMs(startTime))
@@ -170,6 +175,7 @@ public class OfflineEvaluator {
                     .resultId(UUID.randomUUID().toString())
                     .caseId(evalCase.getCaseId())
                     .traceId(traceId)
+                    .executionStatus(execution.getStatus())
                     .actualOutput(actualOutput)
                     .score(score)
                     .durationMs(elapsedMs(startTime))
@@ -181,6 +187,7 @@ public class OfflineEvaluator {
                     .resultId(UUID.randomUUID().toString())
                     .caseId(evalCase.getCaseId())
                     .traceId(TraceUtil.getTraceId())
+                    .executionStatus(HarnessConstants.STATUS_FAILED)
                     .errorMessage("Evaluation case failed: " + e.getClass().getSimpleName())
                     .durationMs(elapsedMs(startTime))
                     .build();
@@ -226,6 +233,9 @@ public class OfflineEvaluator {
         }
         if (run.getFailedCases() != null && run.getFailedCases() > 0) {
             return HarnessConstants.STATUS_PARTIAL_SUCCESS;
+        }
+        if (run.getDegradedCases() != null && run.getDegradedCases() > 0) {
+            return HarnessConstants.STATUS_DEGRADED;
         }
         return HarnessConstants.STATUS_SUCCESS;
     }

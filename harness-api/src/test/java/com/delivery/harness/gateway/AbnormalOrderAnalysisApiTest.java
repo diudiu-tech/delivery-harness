@@ -40,7 +40,8 @@ class AbnormalOrderAnalysisApiTest {
               "primary_cause": "商家出餐慢",
               "secondary_causes": [],
               "evidence_chain": [
-                {"fact": "骑手到店后等待28分钟", "source": "merchant_prep_minutes", "value": "28"}
+                {"fact": "骑手到店后等待28分钟", "evidence_id": "timeline_v2", "evidence_version": "2",
+                 "field_path": "merchant_prep_seconds", "observed_value": 1680, "unit": "seconds"}
               ],
               "applicable_rules": ["ANA-001"],
               "suggested_actions": ["向商家发起出餐时效告警"],
@@ -54,7 +55,7 @@ class AbnormalOrderAnalysisApiTest {
               "primary_cause": "无异常",
               "secondary_causes": [],
               "evidence_chain": [
-                {"fact": "送达早于承诺时间", "source": "overtime_minutes", "value": "0"}
+                {"fact": "送达早于承诺时间", "evidence_id": "timeline_v2", "evidence_version": "2", "field_path": "overtime_seconds", "observed_value": 0, "unit": "seconds"}
               ],
               "applicable_rules": ["ANA-006"],
               "suggested_actions": ["向用户说明实际未超时"],
@@ -109,7 +110,10 @@ class AbnormalOrderAnalysisApiTest {
                 .andExpect(jsonPath("$.data.output.model_output_parsed").value(true))
                 .andExpect(jsonPath("$.data.output.agrees_with_baseline").value(true))
                 .andExpect(jsonPath("$.data.output.guardrail_passed").value(true))
-                .andExpect(jsonPath("$.data.output.needs_human_review").value(false))
+                .andExpect(jsonPath("$.data.output.needs_human_review").value(true))
+                .andExpect(jsonPath("$.data.output.model_adoptable").value(false))
+                .andExpect(jsonPath("$.data.output.customer_message_status").value("BLOCKED"))
+                .andExpect(jsonPath("$.data.output.baseline_is_responsibility").value(false))
                 .andExpect(jsonPath("$.data.output.advisory_only").value(true));
     }
 
@@ -122,7 +126,10 @@ class AbnormalOrderAnalysisApiTest {
                 .andExpect(jsonPath("$.data.output.is_abnormal").value(false))
                 .andExpect(jsonPath("$.data.output.baseline_cause").value("无异常"))
                 .andExpect(jsonPath("$.data.output.timeline.overtime_minutes").value(0))
-                .andExpect(jsonPath("$.data.output.agrees_with_baseline").value(true));
+                .andExpect(jsonPath("$.data.output.agrees_with_baseline").value(true))
+                .andExpect(jsonPath("$.data.output.overtime_status").value("ON_TIME"))
+                .andExpect(jsonPath("$.data.output.model_adoptable").value(true))
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"));
     }
 
     @Test
@@ -170,7 +177,8 @@ class AbnormalOrderAnalysisApiTest {
                 {
                   "primary_cause": "天气异常",
                   "secondary_causes": [],
-                  "evidence_chain": [],
+                  "evidence_chain": [{"fact":"骑手到店后等待28分钟","evidence_id":"timeline_v2","evidence_version":"2",
+                    "field_path":"merchant_prep_seconds","observed_value":1680,"unit":"seconds"}],
                   "applicable_rules": ["ANA-003"],
                   "suggested_actions": [],
                   "risk_notes": [],
@@ -202,12 +210,26 @@ class AbnormalOrderAnalysisApiTest {
     }
 
     @Test
-    void returnsBadGatewayWhenTheModelIsUnreachable() throws Exception {
+    void returnsDeterministicEvidenceAndFailedModelStepWhenTheModelIsUnreachable() throws Exception {
         stubLlmClient.failWith("connection refused");
 
         analyze("TEST001")
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.message").value("Model service unavailable"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DEGRADED"))
+                .andExpect(jsonPath("$.data.output.timeline.merchant_prep_minutes").value(28))
+                .andExpect(jsonPath("$.data.output.model_availability").value("UNAVAILABLE"))
+                .andExpect(jsonPath("$.data.steps[?(@.stepType == 'llm_call' && @.status == 'FAILED' && @.errorMessage != null)]").isNotEmpty());
+    }
+
+    @Test
+    void rejectsWrongCitationValuesWhileKeepingTheParsedModelAvailableForReview() throws Exception {
+        stubLlmClient.respondWith(ON_TIME_ANSWER.replace("\"observed_value\": 0", "\"observed_value\": 1"));
+        analyze("TEST005")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.model_output_parsed").value(true))
+                .andExpect(jsonPath("$.data.output.model_adoptable").value(false))
+                .andExpect(jsonPath("$.data.output.customer_message_status").value("BLOCKED"))
+                .andExpect(jsonPath("$.data.output.validation_errors[?(@ == 'evidence_value_mismatch:timeline_v2:overtime_seconds')]").isNotEmpty());
     }
 
     private org.springframework.test.web.servlet.ResultActions analyze(String orderId) throws Exception {

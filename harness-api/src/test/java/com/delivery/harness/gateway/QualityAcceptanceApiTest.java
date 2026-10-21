@@ -75,6 +75,18 @@ class QualityAcceptanceApiTest {
         assertEquals(configId, QualityData.map(data.get("resolved_config")).get("config_id"));
         var results = getJson("/eval/runs/" + runId + "/results", null, 200);
         assertEquals(6, ((List<?>) results.get("items")).size());
+        for (Object item : (List<?>) results.get("items")) {
+            Map<String, Object> result = QualityData.map(QualityData.map(item).get("data"));
+            assertFalse(QualityData.text(result, "sample_id", "").isBlank());
+            assertTrue(Set.of("SUCCESS", "DEGRADED").contains(result.get("execution_status")));
+            assertEquals(
+                    "MEASURED", QualityData.map(result.get("scores")).get("measurement_status"));
+            assertEquals(true, QualityData.map(result.get("scores")).get("hard_gate_passed"));
+            assertEquals(
+                    true, QualityData.map(result.get("baseline_scores")).get("hard_gate_passed"));
+            assertFalse(result.containsKey("sample"));
+            assertFalse(result.containsKey("execution"));
+        }
         var replay = postJson("/eval/runs/" + runId + "/replay", Map.of(), null, 200);
         assertEquals(
                 "STORED_OUTPUT_RESCORING", QualityData.map(replay.get("data")).get("replay_mode"));

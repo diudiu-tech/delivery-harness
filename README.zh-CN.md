@@ -60,31 +60,6 @@ ID 排序并在 SQL 中按授权范围分页。默认 H2 仅为内存演示；�
 `HARNESS_DATABASE_URL`、用户名和密码。已提供 PostgreSQL 驱动，但 H2 迁移
 测试不能证明真实 PostgreSQL 部署已验收。见 [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md)。
 
-### 可信决策语义（破坏性变更）
-
-时间轴保留秒级精度；缺少端点或时间倒序在可信输出中保持未知，不会被当作
-零时长或确定的赔付依据。小于一分钟的正向超时也算超时，旧版分钟计数仍为
-整数。模型引用会按实际使用的证据与政策快照核验；面向客户的话术由服务端
-根据权威决定及复核状态生成。
-
-只有模型不可用而确定性结果仍可用时，响应从 HTTP 502 改为 HTTP 200 +
-`DEGRADED`。客户端必须检查执行状态和证据核验结果；缺失政策或事实不会
-变成已批准的赔付。赔付方式统一为枚举 ID，退款不得超过已核实可退余额。
-旧字段 `suggested_amount` 可能仅为候选金额；缺少确定依据时，
-`authoritative_amount` 保持 `null`。审批阈值只使用 `HARNESS_REVIEW_APPROVAL_THRESHOLD` /
-`harness.review.approval-threshold`，默认 `10.00`；旧
-`harness.compensation.approval-threshold` 属性被替代。
-设计取舍见 [ADR-0005](docs/adr/0005-trusted-workflow-output-contract.md)。
-
-### 模型调用边界
-
-模型调用使用一个覆盖上传、响应头、响应体及重试的总截止时间；响应体达到
-1 MiB 即停止接收，取消会中断待完成调用。版本化运行绑定最多允许两次重试，
-仅限连接/超时及 HTTP 429/502/503/504，且共享原截止时间；旧版调用不重试。
-pilot 需要显式设置 `HARNESS_LLM_ALLOWED_HOSTS` 并使用 HTTPS（测试可显式
-允许回环 HTTP），不跟随重定向。代码约束保持 system 优先级，可配任务提示词
-使用更低优先级。
-
 ### 显式 API 身份（破坏性变更）
 
 所有 `/api/**` 请求均需显式 bearer。本机 demo 提供小角色集合的
@@ -159,6 +134,8 @@ v2 评测冻结数据集、运行配置与评分器哈希，按期望字段精�
 盲测集需要审核标签，执行成功不代表发布门禁通过。范围校验覆盖运行知识和
 每条样本；进程重启的运行显式失败，并提示使用冻结快照重新评测。
 GET 不补种子，合成评测数据只在 demo 启动阶段初始化。
+评测结果分页保留样本编号、执行状态、候选与基线评分摘要，包括 NOT_MEASURED
+与门禁失败代码；不返回完整证据或执行正文。V10 为已有结果回填这些元数据。
 
 ### 核验反馈闭环
 

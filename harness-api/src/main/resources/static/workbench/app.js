@@ -1091,7 +1091,10 @@ async function openRun(id) {
   if (!sameIdentity(generation) || evalGeneration !== state.evalGeneration)
     return;
   table($("eval-results"), items(result), [
-    { title: "用例", value: (r) => r.sample?.sample_id || r.case_id || r.id },
+    {
+      title: "用例",
+      value: (r) => r.sample_id || r.sample?.sample_id || r.case_id || r.id,
+    },
     {
       title: "执行状态",
       value: (r) =>
@@ -1106,7 +1109,13 @@ async function openRun(id) {
     },
     {
       title: "失败原因",
-      value: (r) => r.error || r.error_message || r.execution?.error || "—",
+      value: (r) =>
+        (r.scores?.hard_failures || []).join(", ") ||
+        r.error_code ||
+        r.error ||
+        r.error_message ||
+        r.execution?.error ||
+        "—",
     },
   ]);
   clearTimeout(state.evalPoll);

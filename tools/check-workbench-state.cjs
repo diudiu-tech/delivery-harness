@@ -285,6 +285,49 @@ const caseRecord = (id) => ({
   );
   fetcher = async (url) =>
     response(
+      url.endsWith("/results")
+        ? {
+            items: [
+              {
+                id: "opaque-result-id",
+                data: {
+                  sample_id: "sample-visible",
+                  execution_status: "FAILED",
+                  scores: {
+                    measurement_status: "NOT_MEASURED",
+                    hard_gate_passed: false,
+                    hard_failures: ["EXECUTION_NOT_COMPLETED"],
+                  },
+                },
+              },
+            ],
+          }
+        : { id: "run-1", data: { status: "COMPLETED" } },
+    );
+  await run('openRun("run-1")');
+  const resultCells =
+    elements.get("eval-results").children[0].children[1].children[0].children;
+  assert.equal(
+    resultCells[0].textContent,
+    "sample-visible",
+    "Result rows show projected sample IDs",
+  );
+  assert.equal(
+    resultCells[1].children[0].textContent,
+    "失败",
+    "Result rows show projected execution state",
+  );
+  assert(
+    resultCells[2].textContent.includes("NOT_MEASURED"),
+    "Unknown labels remain unmeasured",
+  );
+  assert.equal(
+    resultCells[3].textContent,
+    "EXECUTION_NOT_COMPLETED",
+    "Result rows show gate failure codes",
+  );
+  fetcher = async (url) =>
+    response(
       url === "/api/v2/feedback/fb-1"
         ? {
             id: "fb-1",
@@ -381,7 +424,7 @@ const caseRecord = (id) => ({
     "Disconnect clears role navigation",
   );
   console.log(
-    "PASS: startup auth, SQL query parameters, stale filter response, audit cursor, independent review, typed amounts, publisher roles, adapter endpoint, runtime detail, verified feedback version/self-check, identity clearing, malformed 401",
+    "PASS: startup auth, SQL query parameters, stale filter response, audit cursor, independent review, typed amounts, publisher roles, adapter endpoint, evaluation scoring summaries, runtime detail, verified feedback version/self-check, identity clearing, malformed 401",
   );
 })().catch((error) => {
   console.error(error);

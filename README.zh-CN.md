@@ -182,6 +182,12 @@ JSON 数字。批准仍为建议状态 `NOT_EXECUTED`。五个公开 demo 身份
 主管；完整例外复核需另外配置独立主管身份，不能让同一人自批。
 本轮不包含支付渠道、资金台账、回调或实际删除。
 
+### 自动生成的 API 契约
+
+需认证的 `GET /api/v2/openapi` 从实际路由和 DTO 约束生成契约，测试导出
+`harness-api/target/generated-api/openapi.v2.json` 并检查路由与 schema 一致。
+见 [v2 迁移说明](docs/api/v2.md)，不维护手写 OpenAPI 快照。
+
 ## 架构
 
 ```mermaid

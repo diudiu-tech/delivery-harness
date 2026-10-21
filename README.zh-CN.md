@@ -107,6 +107,14 @@ v2 可通过显式 endpoint/host 配置接入 pilot 只读源，10 秒截止时�
 demo 继续使用合成夹具。`GET /api/v2/adapters/status` 仅返回源状态元数据，
 不查询订单，不返回地址凭证。
 
+### 案件、证据与独立复核
+
+v2 队列在 SQL 分页前应用状态、精确订单/审核人、风险、投诉、城市和站点筛选，
+附件正文不进入元数据查询。类型化、有界请求在写入前拒绝非法输入。
+案件发起人和决定作者不能认领、批准或被分派自己的复核；旧数据缺少作者时
+需重新分析。导出使用 `POST /api/v2/cases/{id}/export` 并写审计回执，GET
+返回 405；复核不执行资金。见 [ADR-0007](docs/adr/0007-independent-case-and-decision-reviewers.md)。
+
 ## 架构
 
 ```mermaid

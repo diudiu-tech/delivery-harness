@@ -190,6 +190,15 @@ the publication gate. Scope checks cover runtime knowledge and every sample.
 Restarted runs fail explicitly with frozen-snapshot retry guidance. GET does not
 seed defaults; synthetic evaluation datasets are initialized only in demo startup.
 
+### Verified feedback lifecycle
+
+Structured feedback binds the exact case, decision version, evidence and
+runtime. Case scope authorization is unconditional, including detail reads.
+Another identity verifies a correction before it can become an evaluation
+label. Confirmed feedback can link a fix and a passing frozen regression run;
+raw votes never become blind-set ground truth. List summaries omit corrections;
+`GET /api/v2/feedback/{id}` requires authorization to view the full correction.
+
 ## Architecture
 
 ```mermaid

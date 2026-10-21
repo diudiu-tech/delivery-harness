@@ -244,6 +244,15 @@ The single core-only LINE coverage floor is `0.70` in the root POM. Normal
 different denominators and must not be presented as interchangeable quality or
 production-readiness claims. See [CONTRIBUTING](CONTRIBUTING.md).
 
+### Product review and operations
+
+The [PRD](docs/prd/delivery-harness-product-prd.md) remains a joint-review proposal
+from the separate documentation PR #36. See the [implementation/acceptance map](docs/implementation/delivery-harness-prd-implementation.md),
+[v2 contract notes](docs/api/v2.md) and [pilot runbook](docs/operations/pilot-runbook.md).
+M1–M3 code verification is separate from real IdP/source/PostgreSQL/business
+acceptance. FR-14 funds execution and actual retention deletion require a new
+project after M2 acceptance. Draft PRs do not authorize merging or deployment.
+
 ## Architecture
 
 ```mermaid
@@ -259,7 +268,7 @@ flowchart LR
     Eval --> Agent
 ```
 
-All workflow steps run synchronously in the gateway process. Apart from the configured model endpoint, the default application has no required external services.
+Legacy v1 workflows run synchronously for local demo. V2 uses the durable execution queue with frozen inputs. Default demo uses in-memory H2 and deterministic runtime; pilot requires persistent JDBC, OIDC and a configured read-only order source.
 
 ## Modules
 
@@ -388,7 +397,7 @@ Copy `.env.example` if you want a local reference. Spring reads the following en
 | `HARNESS_LLM_ENDPOINT` | `http://localhost:11434` | OpenAI-compatible base URL |
 | `HARNESS_LLM_MODEL` | `qwen2.5:7b` | Default model name |
 | `HARNESS_LLM_API_KEY` | empty | Optional bearer token; never commit a real value |
-| `HARNESS_LLM_TIMEOUT_SECONDS` | `120` | Model read timeout |
+| `HARNESS_LLM_TIMEOUT_SECONDS` | `120` | Total model call deadline including body and retries |
 | `HARNESS_MAX_COMPENSATION_AMOUNT` | `50.0` | Advisory maximum amount check |
 
 Additional Spring properties, settable in `application.yml` or as `--property=value`:
@@ -426,16 +435,16 @@ Unit and API regression tests cover both workflows. Both workflows are covered e
 - Tool data and addresses are synthetic examples; do not replace them with real personal data in a public deployment.
 - Ingested documents can influence prompts. Treat knowledge ingestion as a prompt-injection trust boundary.
 - The advisory checker detects a small set of phrases and amount conditions; it is not a policy engine.
-- Most in-memory stores are demonstration components and are cleared on restart; traces and feedback have explicit capacity limits, while evaluation and knowledge stores still need lifecycle governance.
+- Legacy memory stores are bounded demonstration components. V2 audit and records use the configured database; backups and lifecycle governance require deployment review. Actual retention deletion is excluded until a separate project after M2 acceptance.
 - Review [SECURITY.md](SECURITY.md) before reporting a vulnerability or deploying a derivative.
 
 ## Known limitations
 
-- Tool implementations return synthetic data rather than calling delivery systems. The data varies with its arguments, which makes the pipeline testable — it does not make it accurate.
+- Default demo tools return synthetic data. Pilot has a bounded read-only order adapter; ETA/capacity remain reference fixtures and do not establish historical responsibility. Real-source acceptance is separate.
 - Retrieval is lexical term overlap, not semantic search. CJK text is split on whitespace and punctuation rather than segmented, so recall depends on the query and the rule sharing a phrase ([ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)).
-- Rules, documents, cases, evaluations, feedback, metrics, and traces are not durable and are lost on restart.
-- The evaluation scorers are lexical and are calibrated to catch regressions, not to certify quality. Six synthetic cases cannot establish accuracy; a real claim needs a labelled set drawn from production traffic.
-- `modelVersion` and `promptVersion` on an evaluation run are recorded metadata labels; they do not yet select a model or mutate the workflow prompt. Pin those inputs through deployment configuration when comparing runs.
+- V2 cases, snapshots, reviews, versions, evaluations, feedback and audit use JDBC. Default H2 is in memory and loses state on restart; configure and validate persistent storage. Legacy v1 knowledge/evaluation/trace components remain in memory.
+- Legacy v1 scores are lexical; v2 uses versioned exact-field expectations and explicit NOT_MEASURED. Synthetic regression fixtures cannot establish business accuracy; that requires independently labelled real traffic.
+- Legacy v1 modelVersion/promptVersion are metadata labels. V2 evaluation freezes the actual runtime configuration and hashes; deployment provider/model versions and real pricing still require independent validation.
 - `needs_human_review` and `approval_required` are derived from guardrail outcome, parse success, model confidence and baseline agreement. This is reporting, not authority: nothing here executes a payment.
 - Guardrails report pass/fail in workflow steps and the final output, but do not replace human review.
 - JDBC/Flyway provides the platform storage foundation. Legacy workflow knowledge, evaluation and trace stores still use memory; a configured PostgreSQL deployment requires its own migration and restore validation.
@@ -444,11 +453,11 @@ Unit and API regression tests cover both workflows. Both workflows are covered e
 
 - Validate organization IdP onboarding, revocation, key rotation and production quotas.
 - Replace mock tools with versioned adapters and contract tests.
-- Add durable repositories and migrations behind explicit profiles.
-- Persist traces, metrics, feedback, and audit events with retention limits.
-- Introduce typed workflow outputs, stronger policy enforcement, and redaction.
+- Validate real PostgreSQL migration, query plans, concurrency, backup and restore.
+- Govern long-term trace, feedback and audit storage; design actual retention deletion separately after M2.
+- Validate typed outputs, policy controls and redaction against approved real source contracts.
 - Build a labelled evaluation set from real abnormal orders and measure top-1 attribution accuracy against the deterministic baseline. If the model does not beat that baseline, the model is not earning its place in the attribution path.
-- Bind evaluation model/prompt versions to immutable runtime configuration so a run can be reproduced from its recorded metadata.
+- Validate reproducibility and model/provider version pinning across actual deployment upgrades.
 - Measure reviewer handling time before and after. Without it, the system cannot demonstrate that it saves anything.
 - Embedding generation and vector retrieval are deliberately **not** on this roadmap at the current corpus size; see [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md) for the conditions that would reopen it.
 

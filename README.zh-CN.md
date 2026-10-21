@@ -204,6 +204,14 @@ core 独立 LINE 覆盖率门槛统一为根 POM 的 `0.70`，正常 `./mvnw cle
 分母不同，不能混作同一质量指标，更不能据此宣称生产就绪。见
 [CONTRIBUTING](CONTRIBUTING.md)。
 
+### 产品评审与运行手册
+
+[PRD](docs/prd/delivery-harness-product-prd.md) 保持独立文档 PR #36 的联合评审提案状态。
+另见[实现与验收映射](docs/implementation/delivery-harness-prd-implementation.md)、
+[v2 契约说明](docs/api/v2.md)和[试点运行手册](docs/operations/pilot-runbook.md)。
+M1–M3 代码验证与真实 IdP、源、PostgreSQL 和业务效果验收分开；FR-14 资金执行
+及实际留存删除在 M2 后另立项。草稿 PR 不构成合并或上线授权。
+
 ## 架构
 
 ```mermaid
@@ -219,7 +227,7 @@ flowchart LR
     Eval --> Agent
 ```
 
-所有工作流步骤都在 Gateway 进程内同步执行。除配置的模型服务外，默认应用不依赖其他外部服务。
+旧 v1 工作流在本机演示中同步执行；v2 使用冻结输入的持久执行队列。默认 demo 采用内存 H2 和确定性运行配置；pilot 需要持久 JDBC、OIDC 与明确配置的只读订单源。
 
 ## 模块说明
 
@@ -386,16 +394,16 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 - 工具数据与地址均为合成示例；公开部署时请勿替换为真实个人数据。
 - 导入的知识内容会影响 Prompt，应将知识导入视为 Prompt Injection 信任边界。
 - 建议式检查器只识别少量短语和金额条件，不是完整策略引擎。
-- 大多数内存存储仅用于演示，重启后数据清空；Trace 和反馈有明确容量上限，评测与知识库仍需要生命周期治理。
+- 旧内存组件仍为有界演示存储；v2 审计和记录使用配置的数据库，备份及生命周期治理需部署验收。实际留存删除在 M2 后另立项目。
 - 报告漏洞或部署衍生项目之前，请阅读 [SECURITY.md](SECURITY.md)。
 
 ## 已知限制
 
-- 工具返回合成数据，不调用真实配送系统。数据会随入参变化——这让流水线可被度量，但不代表它准确。
+- demo 默认工具返回合成数据；pilot 提供有界只读订单适配器。ETA/运力仍为参考夹具，不能证明历史责任；真实源需单独验收。
 - 检索是词法命中率，不是语义检索。中文按空白和标点切分而非分词，召回取决于查询与规则是否共享同一短语（见 [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)）。
-- 规则、文档、案例、评测、反馈、指标和 Trace 均未持久化，重启即丢失。
-- 评测评分器是词法的，定位是发现回归而非认证质量。六条合成用例不足以证明准确率；真实结论需要来自线上流量的标注集。
-- 评测运行中的 `modelVersion` 与 `promptVersion` 当前只是记录用的元数据，不会切换运行时模型或修改工作流 Prompt；比较运行时请通过部署配置固定它们。
+- v2 案件、快照、复核、版本、评测、反馈和审计使用 JDBC；默认 H2 在内存，重启会丢失，需配置并验收持久库。旧 v1 知识、评测及 Trace 仍在内存。
+- 旧 v1 评分为词法口径；v2 使用版本化精确字段期望与 NOT_MEASURED。合成回归不能证明业务准确率，仍需独立标注的真实流量。
+- 旧 v1 的 modelVersion/promptVersion 仅为元数据；v2 冻结实际运行配置与哈希。实际供应商/模型版本及价格仍需单独验收。
 - `needs_human_review` 与 `approval_required` 由 Guardrail 结果、解析是否成功、模型置信度和是否与基线一致推导得出。这是「如实报告」而非「授权」：系统不执行任何付款。
 - Guardrail 会在工作流步骤和最终输出中返回通过/失败，但不能替代人工复核。
 - JDBC/Flyway 已提供平台存储基础；旧版工作流知识、评测及 Trace 仍在内存。配置 PostgreSQL 后仍需单独验证迁移与恢复。
@@ -404,11 +412,11 @@ HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
 
 - 验收组织 IdP 接入、撤权、密钥轮换及生产请求配额。
 - 用版本化 Adapter 和契约测试替换 Mock 工具。
-- 通过显式 Profile 接入持久化 Repository 和 Migration。
-- 持久化 Trace、指标、反馈和审计事件，并增加保留策略。
-- 引入类型化工作流输出、更强策略执行和敏感信息脱敏。
+- 验证真实 PostgreSQL 迁移、执行计划、并发、备份与恢复。
+- 治理长期 Trace、反馈与审计存储；实际留存删除在 M2 后独立设计。
+- 根据经批准的真实源契约验收类型化输出、政策控制与脱敏。
 - 用真实异常单构建标注评测集，度量 top-1 归因准确率并与确定性基线对比。若模型跑不赢基线，它就不该留在归因链路上。
-- 将评测模型/Prompt 版本绑定到不可变运行时配置，使评测可按记录的版本复现。
+- 验证实际部署升级时的可复现性与供应商/模型版本固定。
 - 度量人工处理时长的前后差值。没有这个数，系统无法证明自己节省了什么。
 - 在当前语料规模下，Embedding 与向量检索**刻意不在** Roadmap 上；重新开启的条件见 [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)。
 

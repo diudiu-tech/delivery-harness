@@ -180,6 +180,16 @@ scope as well as policy scope; a broad policy cannot expose a restricted documen
 Lists return scope-preserving metadata, and authorized detail reads return the
 full immutable bundle. Deterministic mode requires no provider request.
 
+### Reproducible structured evaluation (breaking score contract)
+
+V2 evaluations freeze datasets, runtime bundles and scorer hashes, compare
+exact expected fields against a deterministic baseline, and mark missing labels
+NOT_MEASURED. These scores must not be compared with legacy lexical scores.
+Blind datasets require reviewed labels; execution completion alone cannot pass
+the publication gate. Scope checks cover runtime knowledge and every sample.
+Restarted runs fail explicitly with frozen-snapshot retry guidance. GET does not
+seed defaults; synthetic evaluation datasets are initialized only in demo startup.
+
 ## Architecture
 
 ```mermaid

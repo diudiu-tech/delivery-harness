@@ -64,7 +64,7 @@ public class RuleAccuracyScorer {
 
         // Attribution: the model's own claim about which rules apply.
         Object analysis = actualOutput.get("model_analysis");
-        if (analysis instanceof Map<?, ?> analysisMap) {
+        if (!Boolean.FALSE.equals(actualOutput.get("model_adoptable")) && analysis instanceof Map<?, ?> analysisMap) {
             for (String id : asStringList(analysisMap.get("applicable_rules"))) {
                 ids.add(normalise(id));
             }

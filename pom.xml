@@ -52,19 +52,13 @@
           above it, never lower it to make a build pass — a drop is the
           finding.
 
-          Calibrated against a real build, not guessed: harness-core measures
-          0.3528 (598 of 1695 lines), so the floor is 0.30. Headroom is
-          deliberately thin, which is what a ratchet is for.
-
-          That number is low, and the reason is a measurement artefact rather
-          than untested code: the end-to-end tests that exercise the workflows
-          live in harness-api, so the harness-core lines they cover are not
-          attributed here. jacoco:report-aggregate across modules is the fix
-          and would likely more than double this figure. Until that lands,
-          read this as "nobody deleted the unit tests", not as a quality
-          statement.
+          The trusted-platform test suite raised the measured core line
+          coverage above 0.72. The floor is now 0.70 (previously 0.30).
+          API integration coverage is also aggregated in harness-api's
+          target/site/jacoco-aggregate report; this gate still measures
+          core's own unit tests, so an API-only test cannot hide their removal.
         -->
-        <jacoco.core.line.minimum>0.30</jacoco.core.line.minimum>
+        <jacoco.core.line.minimum>0.70</jacoco.core.line.minimum>
     </properties>
 
     <dependencyManagement>

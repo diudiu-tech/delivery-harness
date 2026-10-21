@@ -165,7 +165,7 @@ public final class OrderFixtures {
      * timeline runs backwards from it and a freshly generated fixture always
      * looks like an order that has just completed.
      */
-    static OrderInfo build(String orderId, LocalDateTime now) {
+    public static OrderInfo build(String orderId, LocalDateTime now) {
         Scenario s = scenarioFor(orderId);
 
         LocalDateTime delivered = now;

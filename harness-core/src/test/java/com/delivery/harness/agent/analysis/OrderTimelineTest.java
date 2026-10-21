@@ -97,6 +97,47 @@ class OrderTimelineTest {
         assertEquals(10, OrderTimeline.of(order(3, 7, 28, 20, 40)).asMap().size());
     }
 
+    @Test
+    void unknownPromiseRetainsNullTrustedValuesAndDoesNotClaimOnTime() {
+        OrderInfo source = order(3, 7, 28, 20, 40);
+        source.setExpectedDeliveryTime(null);
+        OrderTimeline timeline = OrderTimeline.of(source);
+        assertEquals("UNKNOWN", timeline.overtimeStatus());
+        org.junit.jupiter.api.Assertions.assertNull(timeline.asTrustedMap().get("promised_seconds"));
+        org.junit.jupiter.api.Assertions.assertNull(timeline.asTrustedMap().get("overtime_seconds"));
+        assertFalse(timeline.complete());
+    }
+
+    @Test
+    void allPresentButReversedTimestampsRemainInvalidAndRawDataIsRetained() {
+        OrderInfo source = order(3, 7, 28, 20, 40);
+        source.setPickupTime(source.getArriveShopTime().minusSeconds(1));
+        OrderTimeline timeline = OrderTimeline.of(source);
+        assertFalse(timeline.complete());
+        assertEquals("INVALID", timeline.qualityStatus());
+        org.junit.jupiter.api.Assertions.assertNull(timeline.asTrustedMap().get("merchant_prep_seconds"));
+        assertEquals(source.getPickupTime(), ((java.util.Map<?, ?>) timeline.asTrustedMap().get("raw_timestamps")).get("pickup_time"));
+    }
+
+    @Test
+    void missingStageDoesNotSuppressKnownOvertimeAndSecondsRemainExact() {
+        OrderInfo source = order(3, 7, 28, 20, 40);
+        source.setArriveShopTime(null);
+        source.setDeliveryTime(source.getExpectedDeliveryTime().plusSeconds(1));
+        OrderTimeline timeline = OrderTimeline.of(source);
+        assertEquals("LATE", timeline.overtimeStatus());
+        assertEquals(1L, timeline.overtimeSeconds());
+        assertFalse(timeline.complete());
+    }
+
+    @Test
+    void cancellationAndTiedStagesHaveExplicitSemantics() {
+        OrderInfo cancelled = order(3, 7, 28, 20, 40); cancelled.setStatus("CANCELLED");
+        assertEquals("NOT_APPLICABLE", OrderTimeline.of(cancelled).overtimeStatus());
+        OrderTimeline tied = OrderTimeline.of(order(5, 5, 20, 20, 40));
+        assertEquals(java.util.List.of("MERCHANT_PREP", "ON_ROAD"), tied.asTrustedMap().get("dominant_legs"));
+    }
+
     private static OrderInfo order(int accept, int toShop, int prep, int onRoad, int promised) {
         LocalDateTime accepted = CREATED.plusMinutes(accept);
         LocalDateTime arrivedShop = accepted.plusMinutes(toShop);

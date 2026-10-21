@@ -15,6 +15,14 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class WorkflowEngine {
 
+    private final ThreadLocal<WorkflowExecution> failedExecution = new ThreadLocal<>();
+
+    public WorkflowExecution takeFailedExecution() {
+        WorkflowExecution failed = failedExecution.get();
+        failedExecution.remove();
+        return failed;
+    }
+
     private final Map<String, WorkflowHandler> handlers = new ConcurrentHashMap<>();
 
     public void registerHandler(String scenario, WorkflowHandler handler) {
@@ -23,6 +31,7 @@ public class WorkflowEngine {
     }
 
     public WorkflowExecution execute(String scenario, Map<String, Object> input) {
+        failedExecution.remove();
         WorkflowHandler handler = handlers.get(scenario);
         if (handler == null) {
             throw new IllegalArgumentException("No workflow handler for scenario: " + scenario);
@@ -44,15 +53,28 @@ public class WorkflowEngine {
         try {
             Map<String, Object> output = handler.handle(input, execution);
             execution.setOutput(output);
-            boolean degraded = output != null && Boolean.TRUE.equals(output.get(HarnessConstants.OUTPUT_DEGRADED));
+            boolean degraded = (output != null && Boolean.TRUE.equals(output.get(HarnessConstants.OUTPUT_DEGRADED)))
+                    || execution.getSteps().stream().anyMatch(s -> HarnessConstants.STATUS_FAILED.equals(s.getStatus()));
             execution.setStatus(degraded
                     ? HarnessConstants.STATUS_DEGRADED
                     : HarnessConstants.STATUS_SUCCESS);
         } catch (HarnessException e) {
             log.error("Workflow dependency failed: scenario={}, executionId={}", scenario, executionId, e);
+            execution.setStatus(HarnessConstants.STATUS_FAILED);
+            ensureFailureStep(execution, e);
+            Map<String, Object> failure = new LinkedHashMap<>();
+            failure.put("error", "Required workflow dependency failed");
+            failure.put("error_code", e.getCode());
+            failure.put("error_type", e.getClass().getSimpleName());
+            failure.put("retryable", true);
+            execution.setOutput(failure);
+            execution.setFinishedAt(LocalDateTime.now());
+            execution.setTotalDurationMs(System.currentTimeMillis() - startTime);
+            failedExecution.set(execution);
             throw e;
         } catch (Exception e) {
             execution.setStatus(HarnessConstants.STATUS_FAILED);
+            ensureFailureStep(execution, e);
             execution.setOutput(Collections.<String, Object>singletonMap("error", "Workflow execution failed"));
             log.error("Workflow execution failed: scenario={}, executionId={}", scenario, executionId, e);
         }
@@ -60,6 +82,15 @@ public class WorkflowEngine {
         execution.setFinishedAt(LocalDateTime.now());
         execution.setTotalDurationMs(System.currentTimeMillis() - startTime);
         return execution;
+    }
+
+    private static void ensureFailureStep(WorkflowExecution execution, Exception failure) {
+        if (execution.getSteps().isEmpty() || !HarnessConstants.STATUS_FAILED.equals(
+                execution.getSteps().get(execution.getSteps().size() - 1).getStatus())) {
+            new StepRecorder(execution).record("execution_failure", "必需执行步骤失败", null, HarnessConstants.STATUS_FAILED,
+                    Collections.emptyMap(), Map.of("required", true, "error_type", failure.getClass().getSimpleName()), 0,
+                    "Workflow dependency failed");
+        }
     }
 
     @FunctionalInterface

@@ -20,12 +20,15 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
+import com.delivery.harness.platform.quality.RuntimeBinding;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -67,6 +70,9 @@ public class CompensationSuggestionWorkflow {
     private final OutputFormatter outputFormatter;
     private final GuardrailChecker guardrailChecker;
 
+    @Value("${harness.execution.deterministic-only:false}")
+    private boolean deterministicOnly;
+
     @PostConstruct
     public void init() {
         workflowEngine.registerHandler(HarnessConstants.SCENARIO_COMPENSATION, this::handle);
@@ -79,13 +85,18 @@ public class CompensationSuggestionWorkflow {
         StepRecorder steps = new StepRecorder(execution);
 
         // Step 1: the order.
-        ToolResult orderResult = invokeTool(steps, HarnessConstants.TOOL_ORDER_QUERY,
-                Collections.singletonMap("order_id", orderId), "查询订单详情");
-        if (!Boolean.TRUE.equals(orderResult.getSuccess())) {
-            throw new ToolException(HarnessConstants.TOOL_ORDER_QUERY,
-                    orderResult.getErrorMessage() == null ? "order lookup failed" : orderResult.getErrorMessage());
+        OrderInfo boundOrder = RuntimeBinding.evidenceOrder();
+        ToolResult orderResult;
+        if (boundOrder != null) {
+            if (!orderId.equals(boundOrder.getOrderId())) { throw new ToolException(HarnessConstants.TOOL_ORDER_QUERY, "Snapshot order mismatch"); }
+            orderResult = ToolResult.builder().toolName(HarnessConstants.TOOL_ORDER_QUERY).success(true).data(boundOrder).build();
+            steps.record(HarnessConstants.STEP_TOOL_CALL, "读取冻结订单快照", HarnessConstants.TOOL_ORDER_QUERY,
+                    HarnessConstants.STATUS_SUCCESS, Map.of("order_id", orderId), Map.of("source", "trusted_snapshot", "required", true), 0, null);
+        } else {
+            orderResult = invokeTool(steps, HarnessConstants.TOOL_ORDER_QUERY,
+                    Collections.singletonMap("order_id", orderId), "查询订单详情");
         }
-        OrderInfo order = JsonUtil.fromMap(JsonUtil.toMap(orderResult.getData()), OrderInfo.class);
+        OrderInfo order = WorkflowSupport.readOrder(orderResult, orderId, steps);
 
         // Step 2: overtime measured from the order, not assumed. The previous
         // revision hard-coded 10 minutes, which pinned every request to the
@@ -99,7 +110,14 @@ public class CompensationSuggestionWorkflow {
         // Step 3: the authoritative decision.
         Map<String, Object> ruleParams = new LinkedHashMap<>();
         ruleParams.put("complaint_type", complaintType);
-        ruleParams.put("overtime_minutes", timeline.overtimeMinutes());
+        ruleParams.put("overtime_minutes", timeline.overtimeSeconds() == null ? null : timeline.overtimeMinutes());
+        ruleParams.put("overtime_seconds", timeline.overtimeSeconds());
+        ruleParams.put("overtime_status", timeline.overtimeStatus());
+        ruleParams.put("timeline_quality", timeline.qualityStatus());
+        ruleParams.put("damage_evidence_verified", RuntimeBinding.damageEvidenceVerified());
+        if (order.getExpectedDeliveryTime() != null) {
+            ruleParams.put("policy_at", order.getExpectedDeliveryTime().atZone(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toString());
+        }
         ruleParams.put("order_amount", order.getOrderAmount());
         if (damageLevel != null && !damageLevel.isBlank()) {
             ruleParams.put("damage_level", damageLevel);
@@ -116,18 +134,27 @@ public class CompensationSuggestionWorkflow {
         // Step 4: similar cases, keyed on the complaint and the matched tier.
         String query = buildRetrievalQuery(complaintType, decision, timeline);
         long retrievalStart = System.nanoTime();
-        RetrievalService.RetrievalResult retrievalResult = retrievalService.retrieve(
+        RetrievalService.RetrievalResult retrievalResult;
+        boolean retrievalFailed = false;
+        try {
+            retrievalResult = retrievalService.retrieve(
                 RetrievalService.RetrievalRequest.builder()
                         .query(query)
                         .scenario(HarnessConstants.SCENARIO_COMPENSATION)
                         .topK(3)
                         .build());
+        } catch (RuntimeException e) {
+            retrievalFailed = true;
+            retrievalResult = RetrievalService.RetrievalResult.builder().query(query).items(Collections.emptyList()).totalFound(0).build();
+        }
         Map<String, Object> retrievalOutput = new LinkedHashMap<>();
         retrievalOutput.put("total_found", retrievalResult.getTotalFound());
+        retrievalOutput.put("required", false);
+        retrievalOutput.put("availability", retrievalFailed ? "UNAVAILABLE" : retrievalResult.getItems().isEmpty() ? "NO_MATCH" : "AVAILABLE");
         retrievalOutput.put("source_ids", retrievalResult.getItems().stream()
                 .map(RetrievalService.RetrievalItem::getSourceId)
                 .collect(Collectors.toList()));
-        steps.record(HarnessConstants.STEP_RETRIEVAL, "检索相似案例", HarnessConstants.STATUS_SUCCESS,
+        steps.record(HarnessConstants.STEP_RETRIEVAL, "检索相似案例", retrievalFailed ? HarnessConstants.STATUS_FAILED : HarnessConstants.STATUS_SUCCESS,
                 Collections.singletonMap("query", query), retrievalOutput,
                 StepRecorder.elapsedMs(retrievalStart));
 
@@ -135,21 +162,22 @@ public class CompensationSuggestionWorkflow {
         String prompt = buildJustificationPrompt(order, timeline, complaintType, decision, retrievalResult);
         long llmStart = System.nanoTime();
         LlmChatResponse llmResponse;
-        boolean degraded = false;
+        boolean modelDisabled = deterministicOnly || RuntimeBinding.deterministicOnly();
+        boolean degraded = retrievalFailed || !timeline.complete() || !"DETERMINED".equals(decision.get("decision_status"));
         try {
-            llmResponse = llmGateway.chat(LlmChatRequest.builder()
+            llmResponse = modelDisabled ? LlmChatResponse.builder().success(true).build() : llmGateway.chat(LlmChatRequest.builder()
                     .scenario(HarnessConstants.SCENARIO_COMPENSATION)
                     .messages(Arrays.asList(LlmMessage.system(SYSTEM_PROMPT), LlmMessage.user(prompt)))
                     .build());
-        } catch (LlmException e) {
+        } catch (RuntimeException e) {
             // The rule engine remains authoritative when the model is down.
             // Return the deterministic payout with an explicit failed model
             // step so callers can distinguish degraded mode from a clean run.
             log.warn("Compensation justification unavailable; continuing with rule decision: model={}, errorType={}",
-                    e.getModel(), e.getClass().getSimpleName());
+                    "configured", e.getClass().getSimpleName());
             degraded = true;
             llmResponse = LlmChatResponse.builder()
-                    .model(e.getModel())
+                    .model("configured")
                     .success(false)
                     .errorMessage("LLM unavailable")
                     .build();
@@ -161,7 +189,7 @@ public class CompensationSuggestionWorkflow {
         llmOutput.put("error", llmResponse.getErrorMessage());
         steps.record(HarnessConstants.STEP_LLM_CALL, "LLM生成赔付说明",
                 null,
-                Boolean.TRUE.equals(llmResponse.getSuccess())
+                modelDisabled ? "SKIPPED" : Boolean.TRUE.equals(llmResponse.getSuccess())
                         ? HarnessConstants.STATUS_SUCCESS : HarnessConstants.STATUS_FAILED,
                 Collections.singletonMap("scenario", HarnessConstants.SCENARIO_COMPENSATION), llmOutput,
                 StepRecorder.elapsedMs(llmStart), llmResponse.getErrorMessage());
@@ -170,10 +198,17 @@ public class CompensationSuggestionWorkflow {
         // plus the language and any conflicting amount the model produced.
         long guardrailStart = System.nanoTime();
         boolean amountWithinPolicy = guardrailChecker.checkCompensationAmount(authoritativeAmount);
-        boolean languageAcceptable = guardrailChecker.checkForbiddenPhrases(llmResponse.getContent());
+        boolean languageAcceptable = modelDisabled || guardrailChecker.checkForbiddenPhrases(llmResponse.getContent());
         boolean modelAmountConflicts = guardrailChecker.mentionsConflictingCompensationAmount(
                 llmResponse.getContent(), authoritativeAmount);
         boolean guardrailPassed = amountWithinPolicy && languageAcceptable && !modelAmountConflicts;
+        if (!amountWithinPolicy && "DETERMINED".equals(decision.get("decision_status"))) {
+            decision.put("decision_status", "POLICY_CONFLICT");
+            decision.put("authoritative_amount", null);
+            decision.put("amount_is_candidate", true);
+            decision.put("approval_required", true);
+            degraded = true;
+        }
 
         Map<String, Object> guardrailOutput = new LinkedHashMap<>();
         guardrailOutput.put("passed", guardrailPassed);
@@ -191,7 +226,20 @@ public class CompensationSuggestionWorkflow {
         Map<String, Object> formatted = outputFormatter.formatCompensationSuggestion(
                 order, complaintType, timeline, decision, llmResponse.getContent(),
                 retrievalResult, guardrailPassed);
-        formatted.put(HarnessConstants.OUTPUT_DEGRADED, degraded);
+        formatted.put("model_availability", modelDisabled ? "DISABLED" : Boolean.TRUE.equals(llmResponse.getSuccess()) ? "AVAILABLE" : "UNAVAILABLE");
+        formatted.put("amount_safe", decision.get("authoritative_amount") != null && amountWithinPolicy);
+        formatted.put("language_safe", languageAcceptable && !modelAmountConflicts);
+        if (modelDisabled) {
+            formatted.put("approval_required", Boolean.TRUE.equals(decision.get("approval_required")) || !timeline.complete());
+            formatted.put("approval_reasons", decision.get("decision_reasons"));
+            formatted.put("customer_message_status", "DRAFT");
+            formatted.put("validation_errors", List.of());
+        } else if (!Boolean.TRUE.equals(formatted.get("model_output_parsed"))) {
+            degraded = true;
+            steps.record("model_validation", "说明结构核验", HarnessConstants.STATUS_FAILED, Collections.emptyMap(),
+                    Map.of("validation_errors", formatted.get("validation_errors")), 0);
+        }
+        formatted.put(HarnessConstants.OUTPUT_DEGRADED, degraded || !guardrailPassed);
         steps.record(HarnessConstants.STEP_FORMAT, "输出格式化", HarnessConstants.STATUS_SUCCESS,
                 Collections.emptyMap(), Collections.singletonMap("field_count", formatted.size()),
                 StepRecorder.elapsedMs(formatStart));
@@ -201,11 +249,22 @@ public class CompensationSuggestionWorkflow {
 
     private ToolResult invokeTool(StepRecorder steps, String toolName, Map<String, Object> params, String label) {
         long start = System.nanoTime();
-        ToolResult result = toolGateway.invoke(toolName, params);
+        boolean required = HarnessConstants.TOOL_ORDER_QUERY.equals(toolName) || HarnessConstants.TOOL_COMPENSATION_RULE.equals(toolName);
+        ToolResult result;
+        try { result = toolGateway.invoke(toolName, params); }
+        catch (RuntimeException e) {
+            steps.record(HarnessConstants.STEP_TOOL_CALL, label, toolName, HarnessConstants.STATUS_FAILED,
+                    params, Map.of("required", required, "retryable", true, "error_type", e.getClass().getSimpleName()),
+                    StepRecorder.elapsedMs(start), "Dependency unavailable");
+            if (required) { throw e; }
+            return ToolResult.builder().toolName(toolName).success(false).errorMessage("Optional dependency unavailable").build();
+        }
+        Map<String, Object> stepOutput = JsonUtil.toMap(result);
+        stepOutput.put("required", required);
         steps.record(HarnessConstants.STEP_TOOL_CALL, label, toolName,
                 Boolean.TRUE.equals(result.getSuccess())
                         ? HarnessConstants.STATUS_SUCCESS : HarnessConstants.STATUS_FAILED,
-                params, JsonUtil.toMap(result), StepRecorder.elapsedMs(start), result.getErrorMessage());
+                params, stepOutput, StepRecorder.elapsedMs(start), result.getErrorMessage());
         return result;
     }
 
@@ -250,12 +309,14 @@ public class CompensationSuggestionWorkflow {
             Map<String, Object> decision,
             RetrievalService.RetrievalResult retrievalResult) {
         StringBuilder sb = new StringBuilder();
-        sb.append("## 订单基本信息\n").append(JsonUtil.toPrettyJson(order)).append("\n\n");
+        sb.append("## 订单基本信息\n").append(JsonUtil.toPrettyJson(OutputFormatter.basicEvidence(order, timeline).get("order"))).append("\n\n");
         sb.append("## 时间轴拆解\n").append(JsonUtil.toPrettyJson(timeline.asMap())).append("\n\n");
         sb.append("## 投诉类型\n").append(complaintType).append("\n\n");
         sb.append("## 规则引擎的最终决定（权威，不可修改）\n")
                 .append(JsonUtil.toPrettyJson(decision)).append("\n\n");
 
+        sb.append("## 可引用证据（evidence_id 对应对象键）\n")
+                .append(JsonUtil.toPrettyJson(OutputFormatter.compensationEvidence(order, timeline, decision))).append("\n\n");
         sb.append("## 历史相似案例\n");
         if (retrievalResult.getItems().isEmpty()) {
             sb.append("（无命中，请在 risk_warnings 中说明缺少可比案例）\n");
@@ -271,6 +332,8 @@ public class CompensationSuggestionWorkflow {
         sb.append("  \"reason\": \"向审核人解释这一档位为何适用，引用具体字段\",\n");
         sb.append("  \"customer_message\": \"可直接发给用户的说明，不含承诺性表述\",\n");
         sb.append("  \"risk_warnings\": [\"风险与证据缺口\"],\n");
+        sb.append("  \"evidence_chain\": [{\"fact\":\"规则确定金额\",\"evidence_id\":\"decision\",\"evidence_version\":\"1\",\"field_path\":\"authoritative_amount\",\"observed_value\":0,\"unit\":\"CNY\"}],\n");
+        sb.append("  \"applicable_rules\": [\"本次matched_rules中的规则ID\"],\n");
         sb.append("  \"escalate\": true 或 false,\n");
         sb.append("  \"confidence\": \"HIGH | MEDIUM | LOW\"\n");
         sb.append("}\n");

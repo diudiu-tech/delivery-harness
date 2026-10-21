@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Delivery Harness · 运营工作台</title>
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="stylesheet" href="styles.css">
+    <script defer src="app.js"></script>
+</head>
+<body>
+    <a class="skip" href="#workspace">跳到工作区</a>
+    <aside class="sidebar">
+        <div class="brand"><span class="brand-icon">D</span><div>Delivery Harness<small>异常与客诉处理</small></div></div>
+        <nav aria-label="工作台导航">
+            <button class="nav active" data-view="cases">案件工作台</button>
+            <button class="nav" data-view="policies">规则与政策</button>
+            <button class="nav" data-view="knowledge">知识资料</button>
+            <button class="nav" data-view="quality">评测中心</button>
+            <button class="nav" data-view="operations">运行与反馈</button>
+            <button class="nav" data-view="settings">运行配置</button>
+        </nav>
+        <div class="sidebar-foot"><span id="mode" class="badge">连接中</span><p id="identity">正在读取用户信息</p><button id="login-open" class="secondary">设置访问凭证</button></div>
+    </aside>
+    <main id="workspace" tabindex="-1">
+        <header class="page-header"><div><p class="eyebrow">运营决策辅助</p><h1 id="page-title">案件工作台</h1><p id="page-description">查看证据，复核建议，记录处理结果。</p></div><button id="refresh" class="secondary">刷新</button></header>
+        <div id="connection-warning" class="notice" hidden></div>
+        <section id="view-cases" class="view">
+            <div id="case-list-area">
+                <div class="toolbar"><div class="filters"><label>状态<select id="case-state"><option value="">全部状态</option><option>OPEN</option><option>PENDING_REVIEW</option><option>IN_REVIEW</option><option>NEEDS_EVIDENCE</option><option>APPROVED</option><option>REJECTED</option><option>CLOSED</option></select></label><label>订单号<input id="case-query" placeholder="搜索订单号"></label><label>风险<select id="case-risk"><option value="">全部风险</option><option value="HIGH">高风险</option><option value="NORMAL">普通</option></select></label><label>投诉<select id="case-complaint"><option value="">全部投诉</option><option value="OVERTIME">超时</option><option value="DAMAGED">损坏</option><option value="MISSING_ITEM">缺件</option><option value="WRONG_ORDER">错单</option></select></label><label>负责人<input id="case-owner" placeholder="筛选已加载案件"></label><label>站点<input id="case-station" placeholder="站点代码"></label></div><button id="new-case-open">新建案件</button></div>
+                <div class="card"><div id="case-list" class="table-region" aria-live="polite"></div><div class="card-foot"><span id="case-count"></span><button id="cases-more" class="secondary" hidden>加载更多</button></div></div>
+            </div>
+            <article id="case-detail" hidden>
+                <div class="toolbar"><button id="case-back" class="secondary">← 返回案件列表</button><div class="actions"><button id="analyze-abnormal">分析异常</button><button id="analyze-compensation" class="secondary">生成赔付建议</button></div></div>
+                <div class="card detail-heading"><div><h2 id="case-title"></h2><p id="case-meta"></p></div><div id="case-badges" class="badges"></div></div>
+                <div class="three-columns"><section class="card"><h2>订单事实与证据</h2><div id="facts"></div><button id="evidence-open" class="secondary">补充证据</button><div id="attachments"></div></section><section class="card"><h2>决定与说明</h2><div id="decision"></div><div id="execution-progress" hidden><p id="execution-state"></p><progress aria-label="任务进度"></progress><button id="cancel-execution" class="secondary">取消任务</button></div></section><section class="card"><h2>人工处理</h2><div id="review-info"></div><div class="stack"><button id="review-claim">领取复核</button><label>处理理由<textarea id="review-reason" rows="3" placeholder="说明证据依据或需要补充的资料"></textarea></label><div class="actions"><button id="review-approve">审核通过</button><button id="review-reject" class="danger">驳回</button><button id="review-return" class="secondary">退回补证</button><button id="review-reassign" class="secondary">转派复核</button></div><button id="feedback-open" class="secondary">提交纠正反馈</button><button id="exception-open" class="secondary">申请人工例外</button><button id="case-close" class="secondary">结案归档</button><button id="case-export" class="secondary">导出案件记录</button><button id="case-hold" class="secondary">设置保留锁</button><button id="retention-plan" class="secondary">预览留存计划</button></div><p class="hint">审核通过后仍需由既有业务流程完成补偿。</p><h3>处理历史</h3><div id="case-history"></div></section></div>
+            </article>
+        </section>
+        <section id="view-policies" class="view" hidden><div class="toolbar"><p>发布前核对边界与影响范围；历史版本保持可追溯。</p><button id="policy-open">建立政策草稿</button></div><div id="policy-list" class="card table-region"></div><section id="policy-detail" class="card" hidden><h2>政策规则与校验</h2><div id="policy-rules"></div><div class="actions"><button id="policy-validate">校验</button><button id="policy-publish">发布</button><button id="policy-withdraw" class="secondary">撤回</button></div><div id="policy-validation" aria-live="polite"></div></section></section>
+        <section id="view-knowledge" class="view" hidden><div class="toolbar"><label>查找规则或资料<input id="knowledge-query" placeholder="规则 ID、关键词或短语"></label><div class="actions"><button id="knowledge-search">检索</button><button id="knowledge-open" class="secondary">导入资料</button></div></div><div id="knowledge-results" hidden class="card"></div><div id="knowledge-list" class="card table-region"></div></section>
+        <section id="view-quality" class="view" hidden><div class="toolbar"><p>冻结配置与数据集，比较确定性基线和候选结果。</p><div class="actions"><button id="eval-open">启动评测</button><button id="dataset-open" class="secondary">建立数据集</button></div></div><div id="eval-list" class="card table-region"></div><section id="eval-detail" class="card" hidden><h2>评测结果</h2><div id="eval-summary"></div><div class="actions"><button id="eval-replay" class="secondary">确定性重放</button><button id="eval-cancel" class="secondary">取消运行</button><button id="eval-retry" class="secondary">按冻结快照重试</button><button id="eval-compare" class="secondary">比较运行</button></div><div id="eval-results" class="table-region"></div></section></section>
+        <section id="view-operations" class="view" hidden><div id="metrics" class="metrics"></div><div class="two-columns"><section class="card"><h2>近期执行</h2><div id="execution-list" class="table-region"></div></section><section class="card"><h2>纠正反馈</h2><div id="feedback-list" class="table-region"></div></section></div><section class="card"><h2>业务审计</h2><div id="audit-list" class="table-region"></div></section></section>
+        <section id="view-settings" class="view" hidden><div class="toolbar"><p>每次分析使用冻结的配置版本。</p><div class="actions"><button id="runtime-open">新建运行配置</button><button id="runtime-route-open" class="secondary">配置灰度与回滚</button></div></div><div id="runtime-list" class="card table-region"></div><section class="card"><h2>连接与范围</h2><div id="integration-info"></div></section></section>
+    </main>
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+    <dialog id="editor"><form id="editor-form"><div class="dialog-head"><h2 id="editor-title"></h2><button type="button" id="editor-close" class="icon-button" aria-label="关闭">×</button></div><div id="editor-fields" class="stack"></div><p id="editor-error" class="error" role="alert" hidden></p><div id="editor-preview-result"></div><div class="dialog-foot"><button type="button" id="editor-preview" class="secondary" hidden>预览切分</button><button type="button" id="editor-cancel" class="secondary">取消</button><button type="submit" id="editor-submit">保存</button></div></form></dialog>
+</body>
+</html>

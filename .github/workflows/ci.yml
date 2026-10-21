@@ -59,7 +59,7 @@ jobs:
       # which lines are uncovered costs the reviewer their next twenty minutes.
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jacoco-report
           path: |
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload generated API contract
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: generated-openapi
           path: harness-api/target/generated-api/openapi.v2.json
@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: surefire-reports
           path: '**/target/surefire-reports/'

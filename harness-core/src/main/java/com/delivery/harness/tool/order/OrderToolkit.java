@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Map;
@@ -29,6 +30,7 @@ import static com.delivery.harness.common.config.HarnessConstants.TOOL_ORDER_QUE
 public class OrderToolkit {
 
     private final ToolGateway toolGateway;
+    private final Clock clock;
 
     @PostConstruct
     public void init() {
@@ -46,7 +48,7 @@ public class OrderToolkit {
         }
 
         String orderId = rawOrderId.toString();
-        Optional<OrderInfo> order = OrderFixtures.find(orderId, LocalDateTime.now());
+        Optional<OrderInfo> order = OrderFixtures.find(orderId, LocalDateTime.now(clock));
         if (order.isEmpty()) {
             log.debug("order_query: orderId={} not found", orderId);
             return ToolResult.builder()

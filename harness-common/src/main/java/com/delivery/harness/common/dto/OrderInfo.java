@@ -46,6 +46,7 @@ public class OrderInfo {
     private String stationId;
     private String stationName;
     private String cityCode;
+    private String zoneId;
 
     private Boolean isAbnormal;
     private String abnormalType;

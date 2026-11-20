@@ -7,6 +7,7 @@ import com.delivery.harness.common.config.HarnessConstants;
 import com.delivery.harness.common.dto.OrderInfo;
 import com.delivery.harness.common.dto.ToolResult;
 import com.delivery.harness.common.dto.WorkflowExecution;
+import com.delivery.harness.common.evidence.MinuteRoundingMode;
 import com.delivery.harness.common.exception.ResourceNotFoundException;
 import com.delivery.harness.common.exception.ToolException;
 import com.delivery.harness.common.util.JsonUtil;
@@ -21,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -62,6 +64,7 @@ public class AbnormalOrderAnalysisWorkflow {
     private final LlmGateway llmGateway;
     private final OutputFormatter outputFormatter;
     private final GuardrailChecker guardrailChecker;
+    private final Clock clock;
 
     @PostConstruct
     public void init() {
@@ -88,7 +91,7 @@ public class AbnormalOrderAnalysisWorkflow {
         // Step 2: deterministic timeline, recorded as its own step so the
         // baseline attribution sits next to the model's answer.
         long timelineStart = System.nanoTime();
-        OrderTimeline timeline = OrderTimeline.of(order);
+        OrderTimeline timeline = OrderTimeline.of(order, clock, MinuteRoundingMode.FLOOR_TRUNCATE);
         steps.record(HarnessConstants.STEP_ANALYSIS, "时间轴拆解", HarnessConstants.STATUS_SUCCESS,
                 Collections.singletonMap("order_id", orderId), timeline.asMap(),
                 StepRecorder.elapsedMs(timelineStart));

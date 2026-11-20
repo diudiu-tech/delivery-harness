@@ -7,6 +7,7 @@ import com.delivery.harness.common.config.HarnessConstants;
 import com.delivery.harness.common.dto.OrderInfo;
 import com.delivery.harness.common.dto.ToolResult;
 import com.delivery.harness.common.dto.WorkflowExecution;
+import com.delivery.harness.common.evidence.MinuteRoundingMode;
 import com.delivery.harness.common.exception.ResourceNotFoundException;
 import com.delivery.harness.common.exception.ToolException;
 import com.delivery.harness.common.exception.LlmException;
@@ -23,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -67,6 +69,7 @@ public class CompensationSuggestionWorkflow {
     private final LlmGateway llmGateway;
     private final OutputFormatter outputFormatter;
     private final GuardrailChecker guardrailChecker;
+    private final Clock clock;
 
     @PostConstruct
     public void init() {
@@ -95,7 +98,7 @@ public class CompensationSuggestionWorkflow {
         // revision hard-coded 10 minutes, which pinned every request to the
         // lowest compensation tier and made the top two tiers unreachable.
         long timelineStart = System.nanoTime();
-        OrderTimeline timeline = OrderTimeline.of(order);
+        OrderTimeline timeline = OrderTimeline.of(order, clock, MinuteRoundingMode.FLOOR_TRUNCATE);
         steps.record(HarnessConstants.STEP_ANALYSIS, "时间轴拆解", HarnessConstants.STATUS_SUCCESS,
                 Collections.singletonMap("order_id", orderId), timeline.asMap(),
                 StepRecorder.elapsedMs(timelineStart));
@@ -103,7 +106,7 @@ public class CompensationSuggestionWorkflow {
         // Step 3: the authoritative decision.
         Map<String, Object> ruleParams = new LinkedHashMap<>();
         ruleParams.put("complaint_type", complaintType);
-        ruleParams.put("overtime_minutes", timeline.overtimeMinutes());
+        ruleParams.put("overtime_minutes", timeline.overtimeMinutesOrEmpty().orElse(null));
         ruleParams.put("order_amount", order.getOrderAmount());
         if (damageLevel != null && !damageLevel.isBlank()) {
             ruleParams.put("damage_level", damageLevel);
@@ -242,7 +245,7 @@ public class CompensationSuggestionWorkflow {
             }
         }
         if (timeline.overtime()) {
-            query.append(" 超时").append(timeline.overtimeMinutes()).append("分钟");
+            query.append(" 超时").append(timeline.overtimeMinutesOrEmpty().orElse(0L)).append("分钟");
         }
         return query.toString().trim();
     }

@@ -209,6 +209,7 @@ public final class OrderFixtures {
                 .stationId(s.stationId())
                 .stationName(s.stationName())
                 .cityCode("010")
+                .zoneId("Asia/Shanghai")
                 .isAbnormal(s.abnormal())
                 .abnormalType(s.abnormal() ? "OVERTIME" : "NONE")
                 .events(buildEvents(created, accepted, arrivedShop, pickedUp, delivered))

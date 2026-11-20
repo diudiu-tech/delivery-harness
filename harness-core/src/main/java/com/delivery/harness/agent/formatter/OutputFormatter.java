@@ -75,13 +75,15 @@ public class OutputFormatter {
             reviewReasons.add("disagrees_with_deterministic_baseline");
         }
         if (!timeline.complete()) {
-            reviewReasons.add("incomplete_order_timeline");
+            reviewReasons.add(timeline.integrity() == OrderTimeline.TimelineIntegrity.CORRUPTED_TIMESTAMPS
+                    ? "corrupted_order_timeline"
+                    : "incomplete_order_timeline");
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("order_id", order.getOrderId());
         result.put("analysis_type", "abnormal_order");
-        result.put("is_abnormal", timeline.overtime());
+        result.put("is_abnormal", timeline.overtimeStatus().knownValue().orElse(null));
         result.put("timeline", timeline.asMap());
         result.put("baseline_cause", timeline.dominantLegLabel());
         result.put("model_analysis", parsed ? analysis : null);
@@ -135,7 +137,9 @@ public class OutputFormatter {
             approvalReasons.add("model_requested_escalation");
         }
         if (!timeline.complete()) {
-            approvalReasons.add("incomplete_order_timeline");
+            approvalReasons.add(timeline.integrity() == OrderTimeline.TimelineIntegrity.CORRUPTED_TIMESTAMPS
+                    ? "corrupted_order_timeline"
+                    : "incomplete_order_timeline");
         }
 
         Map<String, Object> result = new LinkedHashMap<>();

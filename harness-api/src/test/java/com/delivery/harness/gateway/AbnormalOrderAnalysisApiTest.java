@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -199,6 +200,27 @@ class AbnormalOrderAnalysisApiTest {
                 .andExpect(jsonPath("$.data.output.needs_human_review").value(true))
                 .andExpect(jsonPath("$.data.steps[?(@.stepType == 'guardrail' "
                         + "&& @.status == 'FAILED')]").isNotEmpty());
+    }
+
+    @Test
+    void neverLeaksScenarioLabelsIntoTheModelPrompt() throws Exception {
+        stubLlmClient.respondWith(MERCHANT_SLOW_ANSWER);
+
+        analyze("TEST001").andExpect(status().isOk());
+
+        String prompt = stubLlmClient.lastUserPrompt();
+        assertFalse(prompt.contains("scenario_key"), "prompt must not contain scenario_key metadata");
+        assertFalse(prompt.contains("MERCHANT_SLOW"), "prompt must not leak internal scenario label");
+    }
+
+    @Test
+    void returnsNotFoundForAnUnknownOrderId() throws Exception {
+        analyze("ORD-DOES-NOT-EXIST")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").value("Order not found"));
+
+        assertEquals(0, stubLlmClient.callCount(), "unknown order must fail before calling the model");
     }
 
     @Test

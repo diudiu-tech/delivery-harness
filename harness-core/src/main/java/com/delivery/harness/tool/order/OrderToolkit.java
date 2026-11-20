@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.delivery.harness.common.config.HarnessConstants.TOOL_ORDER_QUERY;
 
@@ -45,13 +46,21 @@ public class OrderToolkit {
         }
 
         String orderId = rawOrderId.toString();
-        OrderInfo order = OrderFixtures.build(orderId, LocalDateTime.now());
-        log.debug("order_query: orderId={}, scenario={}", orderId, order.getExtraInfo().get("scenario_key"));
+        Optional<OrderInfo> order = OrderFixtures.find(orderId, LocalDateTime.now());
+        if (order.isEmpty()) {
+            log.debug("order_query: orderId={} not found", orderId);
+            return ToolResult.builder()
+                    .toolName(TOOL_ORDER_QUERY)
+                    .success(false)
+                    .errorMessage("NOT_FOUND")
+                    .build();
+        }
+        log.debug("order_query: orderId={}, stationId={}", orderId, order.get().getStationId());
 
         return ToolResult.builder()
                 .toolName(TOOL_ORDER_QUERY)
                 .success(true)
-                .data(order)
+                .data(order.get())
                 .build();
     }
 

@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Deterministic synthetic orders for the mock {@code order_query} tool.
@@ -22,9 +23,10 @@ import java.util.Map;
  * request: two different orders received identical evidence, so no evaluation
  * could tell a model that read the evidence from one that ignored it.
  *
- * <p>Known IDs map to a named scenario. Unknown IDs are assigned a scenario by
- * a stable hash of the ID, so an arbitrary request is still reproducible: the
- * same ID always yields the same timeline.
+ * <p>Only explicitly pinned order IDs resolve to a synthetic order. Unknown IDs
+ * return empty ({@code NOT_FOUND}) rather than being hash-fabricated into fake
+ * orders, and internal scenario labels are never placed into {@code extraInfo}
+ * so evaluation inputs cannot leak the answer to downstream prompts.
  */
 public final class OrderFixtures {
 
@@ -118,9 +120,6 @@ public final class OrderFixtures {
             39.9087, 116.3975, 39.9130, 116.4020,
             "31.00", "晴");
 
-    private static final List<Scenario> ALL = List.of(
-            MERCHANT_SLOW, CAPACITY_SHORT, WEATHER_DELAY, RIDER_DETOUR, SEVERE_MERCHANT_SLOW, ON_TIME);
-
     private static final Map<String, Scenario> BY_ORDER_ID = new LinkedHashMap<>();
 
     static {
@@ -134,7 +133,7 @@ public final class OrderFixtures {
 
         // Orders referenced by the seeded evaluation cases. Changing these
         // changes what those cases measure; keep them in step with
-        // harness-eval/src/main/resources/seed/eval-cases.json.
+        // harness-core/src/main/resources/seed/eval-cases.json.
         BY_ORDER_ID.put("TEST001", MERCHANT_SLOW);
         BY_ORDER_ID.put("TEST002", CAPACITY_SHORT);
         BY_ORDER_ID.put("TEST003", SEVERE_MERCHANT_SLOW);
@@ -142,17 +141,12 @@ public final class OrderFixtures {
         BY_ORDER_ID.put("TEST005", ON_TIME);
     }
 
-    /** Scenario for an order ID. Never null; unknown IDs hash to a stable scenario. */
-    static Scenario scenarioFor(String orderId) {
+    /** Resolves a pinned order ID to its scenario; unknown IDs return empty instead of being fabricated. */
+    static Optional<Scenario> findScenario(String orderId) {
         if (orderId == null || orderId.isBlank()) {
-            return MERCHANT_SLOW;
+            return Optional.empty();
         }
-        Scenario known = BY_ORDER_ID.get(orderId);
-        if (known != null) {
-            return known;
-        }
-        int index = Math.floorMod(orderId.hashCode(), ALL.size());
-        return ALL.get(index);
+        return Optional.ofNullable(BY_ORDER_ID.get(orderId));
     }
 
     /** Order IDs with an explicitly pinned scenario. */
@@ -161,13 +155,16 @@ public final class OrderFixtures {
     }
 
     /**
-     * Builds the synthetic order. {@code now} is the delivery moment, so the
-     * timeline runs backwards from it and a freshly generated fixture always
-     * looks like an order that has just completed.
+     * Builds the synthetic order for a pinned order ID, or empty when unknown.
+     * {@code now} is the delivery moment, so the timeline runs backwards from it
+     * and a freshly generated fixture always looks like an order that has just
+     * completed.
      */
-    static OrderInfo build(String orderId, LocalDateTime now) {
-        Scenario s = scenarioFor(orderId);
+    static Optional<OrderInfo> find(String orderId, LocalDateTime now) {
+        return findScenario(orderId).map(s -> buildFromScenario(orderId, s, now));
+    }
 
+    private static OrderInfo buildFromScenario(String orderId, Scenario s, LocalDateTime now) {
         LocalDateTime delivered = now;
         LocalDateTime created = delivered.minusMinutes(s.actualMinutes());
         LocalDateTime accepted = created.plusMinutes(s.acceptDelayMinutes());
@@ -176,7 +173,6 @@ public final class OrderFixtures {
         LocalDateTime promised = created.plusMinutes(s.promisedMinutes());
 
         Map<String, Object> extra = new LinkedHashMap<>();
-        extra.put("scenario_key", s.key());
         extra.put("weather", s.weather());
         extra.put("promised_minutes", s.promisedMinutes());
         extra.put("actual_minutes", s.actualMinutes());

@@ -4,6 +4,7 @@ import com.delivery.harness.agent.workflow.WorkflowEngine;
 import com.delivery.harness.common.dto.HarnessResponse;
 import com.delivery.harness.common.dto.WorkflowExecution;
 import com.delivery.harness.common.exception.LlmException;
+import com.delivery.harness.common.exception.ResourceNotFoundException;
 import com.delivery.harness.common.util.TraceUtil;
 import com.delivery.harness.observe.metrics.MetricsService;
 import com.delivery.harness.observe.trace.TraceService;
@@ -49,6 +50,20 @@ class AgentOrchestratorTest {
         assertThrows(LlmException.class, () -> orchestrator.process(request("dependency-failure")));
 
         assertEquals("FAILED", traceService.getTrace("dependency-trace").orElseThrow().getStatus());
+    }
+
+    @Test
+    void recordsNotFoundWithoutCountingAsDependencyFailure() {
+        workflowEngine.registerHandler("missing-order", (input, execution) -> {
+            throw new ResourceNotFoundException("Order not found");
+        });
+        TraceUtil.setTraceId("not-found-trace");
+
+        assertThrows(ResourceNotFoundException.class, () -> orchestrator.process(request("missing-order")));
+
+        assertEquals("FAILED", traceService.getTrace("not-found-trace").orElseThrow().getStatus());
+        assertEquals(1L, metricsService.getSnapshot().get("missing-order_not_found"));
+        assertEquals(null, metricsService.getSnapshot().get("missing-order_dependency_failure"));
     }
 
     @Test

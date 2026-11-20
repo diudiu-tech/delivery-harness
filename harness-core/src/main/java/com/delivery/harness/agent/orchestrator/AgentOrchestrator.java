@@ -5,6 +5,7 @@ import com.delivery.harness.common.config.HarnessConstants;
 import com.delivery.harness.common.dto.HarnessResponse;
 import com.delivery.harness.common.dto.WorkflowExecution;
 import com.delivery.harness.common.exception.HarnessException;
+import com.delivery.harness.common.exception.ResourceNotFoundException;
 import com.delivery.harness.common.util.TraceUtil;
 import com.delivery.harness.observe.metrics.MetricsService;
 import com.delivery.harness.observe.trace.TraceService;
@@ -63,6 +64,10 @@ public class AgentOrchestrator {
                 return HarnessResponse.error(500, "Workflow execution failed", execution, traceId);
             }
             return HarnessResponse.success(execution, traceId);
+        } catch (ResourceNotFoundException e) {
+            observeFailure(traceId, request, e);
+            metricsService.incrementCounter(metricName(request.getScenario(), "not_found"));
+            throw e;
         } catch (HarnessException e) {
             observeFailure(traceId, request, e);
             metricsService.incrementCounter(metricName(request.getScenario(), "dependency_failure"));

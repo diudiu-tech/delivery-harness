@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,8 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Guards the property the whole harness rests on: the synthetic order varies
- * with the order ID, and does so reproducibly.
+ * Guards the properties the fixture set rests on: pinned orders vary
+ * reproducibly, internal scenario labels never leak into order payloads, and
+ * unknown order IDs return empty instead of being fabricated.
  */
 class OrderFixturesTest {
 
@@ -24,12 +24,10 @@ class OrderFixturesTest {
 
     @Test
     void producesDifferentTimelinesForDifferentOrders() {
-        OrderInfo merchantSlow = OrderFixtures.build("TEST001", NOW);
-        OrderInfo capacityShort = OrderFixtures.build("TEST002", NOW);
+        OrderInfo merchantSlow = OrderFixtures.find("TEST001", NOW).orElseThrow();
+        OrderInfo capacityShort = OrderFixtures.find("TEST002", NOW).orElseThrow();
 
         assertAll(
-                () -> assertEquals("MERCHANT_SLOW", merchantSlow.getExtraInfo().get("scenario_key")),
-                () -> assertEquals("CAPACITY_SHORT", capacityShort.getExtraInfo().get("scenario_key")),
                 () -> assertEquals("S001", merchantSlow.getStationId()),
                 () -> assertEquals("S002", capacityShort.getStationId()),
                 // Same total overtime, different cause. This pair is the one
@@ -41,28 +39,37 @@ class OrderFixturesTest {
     }
 
     @Test
-    void isDeterministicForTheSameOrderId() {
-        OrderInfo first = OrderFixtures.build("ARBITRARY-123", NOW);
-        OrderInfo second = OrderFixtures.build("ARBITRARY-123", NOW);
-
-        assertEquals(first.getExtraInfo().get("scenario_key"), second.getExtraInfo().get("scenario_key"));
-        assertEquals(first.getStationId(), second.getStationId());
-        assertEquals(first.getOrderAmount(), second.getOrderAmount());
+    void neverLeaksScenarioKeyIntoExtraInfo() {
+        for (String orderId : OrderFixtures.pinnedOrderIds()) {
+            OrderInfo order = OrderFixtures.find(orderId, NOW).orElseThrow();
+            assertFalse(order.getExtraInfo().containsKey("scenario_key"),
+                    "scenario_key must not leak into order payload for " + orderId);
+        }
     }
 
     @Test
-    void assignsUnknownOrderIdsAcrossTheScenarioSet() {
-        Set<Object> scenarios = new HashSet<>();
-        for (int i = 0; i < 200; i++) {
-            scenarios.add(OrderFixtures.build("UNPINNED-" + i, NOW).getExtraInfo().get("scenario_key"));
-        }
-        assertTrue(scenarios.size() > 1,
-                "unknown order IDs must not all collapse onto one scenario");
+    void isDeterministicForTheSamePinnedOrderId() {
+        OrderInfo first = OrderFixtures.find("DEMO-001", NOW).orElseThrow();
+        OrderInfo second = OrderFixtures.find("DEMO-001", NOW).orElseThrow();
+
+        assertEquals(first.getStationId(), second.getStationId());
+        assertEquals(first.getOrderAmount(), second.getOrderAmount());
+        assertEquals(first.getCreateTime(), second.getCreateTime());
+        assertEquals(first.getDeliveryTime(), second.getDeliveryTime());
+    }
+
+    @Test
+    void returnsEmptyForUnknownBlankOrNullOrderIds() {
+        assertAll(
+                () -> assertEquals(Optional.empty(), OrderFixtures.find("ORD-DOES-NOT-EXIST", NOW)),
+                () -> assertEquals(Optional.empty(), OrderFixtures.find("ARBITRARY-123", NOW)),
+                () -> assertEquals(Optional.empty(), OrderFixtures.find("   ", NOW)),
+                () -> assertEquals(Optional.empty(), OrderFixtures.find(null, NOW)));
     }
 
     @Test
     void includesAnOrderThatWasDeliveredOnTime() {
-        OrderInfo onTime = OrderFixtures.build("TEST005", NOW);
+        OrderInfo onTime = OrderFixtures.find("TEST005", NOW).orElseThrow();
 
         assertAll(
                 () -> assertFalse(onTime.getIsAbnormal()),
@@ -74,7 +81,7 @@ class OrderFixturesTest {
 
     @Test
     void buildsAnInternallyConsistentTimeline() {
-        OrderInfo order = OrderFixtures.build("TEST003", NOW);
+        OrderInfo order = OrderFixtures.find("TEST003", NOW).orElseThrow();
 
         long actual = Duration.between(order.getCreateTime(), order.getDeliveryTime()).toMinutes();
         long legs = Duration.between(order.getCreateTime(), order.getAcceptTime()).toMinutes()
@@ -94,13 +101,13 @@ class OrderFixturesTest {
     @Test
     void everyPinnedOrderIdResolves() {
         for (String orderId : OrderFixtures.pinnedOrderIds()) {
-            assertNotNull(OrderFixtures.build(orderId, NOW).getStationId(), orderId);
+            assertNotNull(OrderFixtures.find(orderId, NOW).orElseThrow().getStationId(), orderId);
         }
     }
 
     @Test
     void marksItsDataAsSynthetic() {
-        assertEquals(true, OrderFixtures.build("TEST001", NOW).getExtraInfo().get("synthetic"));
+        assertEquals(true, OrderFixtures.find("TEST001", NOW).orElseThrow().getExtraInfo().get("synthetic"));
     }
 
     private static void assertNotEqualLegs(OrderInfo a, OrderInfo b) {

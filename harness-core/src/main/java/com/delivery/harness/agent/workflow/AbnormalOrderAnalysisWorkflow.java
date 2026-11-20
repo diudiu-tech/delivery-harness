@@ -7,6 +7,7 @@ import com.delivery.harness.common.config.HarnessConstants;
 import com.delivery.harness.common.dto.OrderInfo;
 import com.delivery.harness.common.dto.ToolResult;
 import com.delivery.harness.common.dto.WorkflowExecution;
+import com.delivery.harness.common.exception.ResourceNotFoundException;
 import com.delivery.harness.common.exception.ToolException;
 import com.delivery.harness.common.util.JsonUtil;
 import com.delivery.harness.knowledge.retrieval.RetrievalService;
@@ -76,6 +77,9 @@ public class AbnormalOrderAnalysisWorkflow {
         ToolResult orderResult = invokeTool(steps, HarnessConstants.TOOL_ORDER_QUERY,
                 Collections.singletonMap("order_id", orderId), "查询订单详情");
         if (!Boolean.TRUE.equals(orderResult.getSuccess())) {
+            if ("NOT_FOUND".equals(orderResult.getErrorMessage())) {
+                throw new ResourceNotFoundException("Order not found");
+            }
             throw new ToolException(HarnessConstants.TOOL_ORDER_QUERY,
                     orderResult.getErrorMessage() == null ? "order lookup failed" : orderResult.getErrorMessage());
         }

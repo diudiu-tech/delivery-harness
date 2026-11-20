@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -183,6 +184,16 @@ class CompensationSuggestionApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.output.suggested_amount").value(64.00))
                 .andExpect(jsonPath("$.data.output.approval_required").value(true));
+    }
+
+    @Test
+    void returnsNotFoundForAnUnknownOrderId() throws Exception {
+        compensate("ORD-DOES-NOT-EXIST", "OVERTIME")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").value("Order not found"));
+
+        assertEquals(0, stubLlmClient.callCount(), "unknown order must fail before calling the model");
     }
 
     @Test

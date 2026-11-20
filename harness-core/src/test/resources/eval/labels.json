@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1.0",
+  "note": "Test-only ground-truth contract expectations for synthetic fixtures. Physically isolated under src/test/resources and forbidden from production bytecode by ArchitectureGuardTest.",
+  "fixtures": [
+    {
+      "orderId": "ORD-MERCHANT-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "ELIGIBLE",
+      "expectedRuleId": "COMP-002",
+      "expectedActionableAmount": "5.00",
+      "expectedOvertimeMinutes": 18
+    },
+    {
+      "orderId": "ORD-CAPACITY-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "ELIGIBLE",
+      "expectedRuleId": "COMP-002",
+      "expectedActionableAmount": "5.00",
+      "expectedOvertimeMinutes": 18
+    },
+    {
+      "orderId": "ORD-WEATHER-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "ELIGIBLE",
+      "expectedRuleId": "COMP-002",
+      "expectedActionableAmount": "5.00",
+      "expectedOvertimeMinutes": 25
+    },
+    {
+      "orderId": "ORD-ROAD-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "ELIGIBLE",
+      "expectedRuleId": "COMP-003",
+      "expectedActionableAmount": "1.00",
+      "expectedOvertimeMinutes": 14
+    },
+    {
+      "orderId": "ORD-SEVERE-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "ELIGIBLE",
+      "expectedRuleId": "COMP-001",
+      "expectedActionableAmount": "20.00",
+      "expectedOvertimeMinutes": 35
+    },
+    {
+      "orderId": "ORD-ONTIME-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "INELIGIBLE",
+      "expectedRuleId": "COMP-006",
+      "expectedActionableAmount": "0.00",
+      "expectedOvertimeMinutes": 0
+    },
+    {
+      "orderId": "ORD-IM-ADDR-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "ELIGIBLE",
+      "expectedRuleId": "COMP-003",
+      "expectedActionableAmount": "1.00",
+      "expectedUnconfirmedSignals": ["CUSTOMER_CHANGED_ADDRESS"]
+    },
+    {
+      "orderId": "ORD-IM-DAMAGE-01",
+      "complaintType": "DAMAGED",
+      "expectedAdjudication": "NEEDS_EVIDENCE",
+      "expectedRuleId": "COMP-004",
+      "expectedActionableAmount": null,
+      "expectedUnconfirmedSignals": ["DAMAGE_CLAIM", "MERCHANT_ITEM_SWAP"]
+    },
+    {
+      "orderId": "ORD-IM-NEG-INJ-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "ELIGIBLE",
+      "expectedRuleId": "COMP-003",
+      "expectedActionableAmount": "1.00",
+      "expectedUntrustedText": true,
+      "expectedUnconfirmedSignals": []
+    },
+    {
+      "orderId": "ORD-MISSING-TS-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "NEEDS_EVIDENCE",
+      "expectedActionableAmount": null
+    },
+    {
+      "orderId": "ORD-CORRUPT-TS-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "NEEDS_EVIDENCE",
+      "expectedActionableAmount": null
+    },
+    {
+      "orderId": "ORD-OVERCAP-01",
+      "complaintType": "DAMAGED",
+      "attestedDamageLevel": "FULL",
+      "expectedAdjudication": "EXCEEDS_CAP_ESCALATE",
+      "expectedActionableAmount": null,
+      "expectedCalculatedAmount": "64.00"
+    },
+    {
+      "orderId": "ORD-OVERCAP-01",
+      "complaintType": "MISSING_ITEM",
+      "expectedAdjudication": "NO_APPLICABLE_POLICY",
+      "expectedActionableAmount": null
+    },
+    {
+      "orderId": "ORD-INTRANSIT-01",
+      "complaintType": "OVERTIME",
+      "expectedAdjudication": "OUT_OF_SCOPE",
+      "expectedActionableAmount": null
+    }
+  ]
+}

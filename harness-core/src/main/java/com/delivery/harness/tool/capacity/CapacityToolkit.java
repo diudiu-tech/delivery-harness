@@ -62,7 +62,9 @@ public class CapacityToolkit {
         capacity.put("capacity_ratio", capacityRatio);
         capacity.put("peak_level", peakLevel(capacityRatio));
         capacity.put("avg_dispatch_wait_minutes", load.avgDispatchWaitMinutes());
+        capacity.put("avg_merchant_prep_minutes", load.avgMerchantPrepMinutes());
         capacity.put("avg_delivery_time_minutes", load.avgDeliveryMinutes());
+        capacity.put("as_of", params.get("as_of"));
         capacity.put("strained", capacityRatio >= 0.85);
         capacity.put("synthetic", true);
         return ToolResult.builder().toolName(TOOL_CAPACITY_QUERY).success(true).data(capacity).build();
@@ -75,14 +77,14 @@ public class CapacityToolkit {
      */
     private static StationLoad loadFor(String stationId) {
         return switch (stationId) {
-            case "S001" -> new StationLoad("示例一站", 30, 19, 8, 3, 34);
-            case "S002" -> new StationLoad("示例二站", 22, 21, 24, 17, 47);
-            case "S003" -> new StationLoad("示例三站", 26, 22, 15, 9, 41);
+            case "S001" -> new StationLoad("示例一站", 30, 19, 8, 3, 10, 34);
+            case "S002" -> new StationLoad("示例二站", 22, 21, 24, 17, 10, 47);
+            case "S003" -> new StationLoad("示例三站", 26, 22, 15, 9, 10, 41);
             default -> {
                 int seed = Math.floorMod(stationId.hashCode(), 10);
                 int online = 20 + seed;
                 int busy = Math.min(online, 12 + seed);
-                yield new StationLoad("示例站点-" + stationId, online, busy, seed * 2, 4 + seed, 32 + seed);
+                yield new StationLoad("示例站点-" + stationId, online, busy, seed * 2, 4 + seed, 10, 32 + seed);
             }
         };
     }
@@ -103,6 +105,7 @@ public class CapacityToolkit {
             int busyRiders,
             int pendingOrders,
             int avgDispatchWaitMinutes,
+            int avgMerchantPrepMinutes,
             int avgDeliveryMinutes) {}
 
     private ToolDefinition buildDefinition() {

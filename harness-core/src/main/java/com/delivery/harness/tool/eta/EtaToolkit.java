@@ -86,6 +86,17 @@ public class EtaToolkit {
         return ToolResult.builder().toolName(TOOL_ETA_QUERY).success(true).data(eta).build();
     }
 
+    /** Deterministic road ETA in minutes using the same formula as {@code eta_query}. */
+    public static long estimateMinutes(
+            double originLat, double originLng, double destLat, double destLng, String weather) {
+        double straightLine = haversineMeters(originLat, originLng, destLat, destLng);
+        long roadDistance = Math.round(straightLine * ROAD_WINDING_FACTOR);
+        double weatherFactor = weatherFactor(weather);
+        long estimatedSeconds = Math.round(roadDistance / COURIER_SPEED_MPS * weatherFactor)
+                + HANDOVER_OVERHEAD_SECONDS;
+        return Math.round(estimatedSeconds / 60.0);
+    }
+
     static double weatherFactor(String weather) {
         if (weather == null) {
             return 1.0;

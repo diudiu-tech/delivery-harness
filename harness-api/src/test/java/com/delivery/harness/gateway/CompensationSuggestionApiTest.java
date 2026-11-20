@@ -168,21 +168,37 @@ class CompensationSuggestionApiTest {
     }
 
     @Test
-    void requiresDamageEvidenceAndUsesTheConfiguredDamagePolicy() throws Exception {
+    void requiresDamageEvidenceAndEnforcesEscalationCap() throws Exception {
         compensateDamage("TEST003", "DAMAGED", null)
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.adjudication_status").value("NEEDS_EVIDENCE"))
                 .andExpect(jsonPath("$.data.output.matched_rules[0].rule_id").value("COMP-004"))
-                .andExpect(jsonPath("$.data.output.suggested_amount").value(0.0))
+                .andExpect(jsonPath("$.data.output.suggested_amount").doesNotExist())
+                .andExpect(jsonPath("$.data.output.missing_evidence[0]").value("DAMAGE_LEVEL"))
                 .andExpect(jsonPath("$.data.output.approval_required").value(true));
 
         compensateDamage("TEST003", "DAMAGED", "PARTIAL")
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.adjudication_status").value("ELIGIBLE"))
                 .andExpect(jsonPath("$.data.output.suggested_amount").value(20.00))
                 .andExpect(jsonPath("$.data.output.approval_required").value(true));
 
+        // 64.00 exceeds PolicyBundle.limits.escalationCap (50.00): never surfaced as actionable suggested_amount.
         compensateDamage("TEST003", "DAMAGED", "FULL")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.output.suggested_amount").value(64.00))
+                .andExpect(jsonPath("$.data.output.adjudication_status").value("EXCEEDS_CAP_ESCALATE"))
+                .andExpect(jsonPath("$.data.output.suggested_amount").doesNotExist())
+                .andExpect(jsonPath("$.data.output.calculated_amount").value(64.00))
+                .andExpect(jsonPath("$.data.output.guardrail_passed").value(false))
+                .andExpect(jsonPath("$.data.output.approval_required").value(true));
+    }
+
+    @Test
+    void separatesNoApplicablePolicyFromIneligible() throws Exception {
+        compensate("TEST003", "MISSING_ITEM")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.output.adjudication_status").value("NO_APPLICABLE_POLICY"))
+                .andExpect(jsonPath("$.data.output.suggested_amount").doesNotExist())
                 .andExpect(jsonPath("$.data.output.approval_required").value(true));
     }
 

@@ -2,7 +2,6 @@ package com.delivery.harness.agent.guardrail;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -17,8 +16,7 @@ class GuardrailCheckerTest {
 
     @BeforeEach
     void setUp() {
-        checker = new GuardrailChecker();
-        ReflectionTestUtils.setField(checker, "maxCompensationAmount", 50.0);
+        checker = new GuardrailChecker(new BigDecimal("50.00"));
     }
 
     @Test

@@ -1,12 +1,14 @@
 package com.delivery.harness.agent.guardrail;
 
+import com.delivery.harness.policy.PolicyBundleLoader;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -14,9 +16,10 @@ import java.util.regex.Pattern;
  * Advisory output checks.
  *
  * <p>Not a policy engine. It detects a small set of promise-like phrases,
- * bounds a payout, and verifies a required field is present. Results are
- * reported on the response and in the workflow steps; they never authorise a
- * payment, and human review is still required.
+ * bounds a payout against the active {@code PolicyBundle.limits.escalationCap},
+ * and verifies a required field is present. Results are reported on the
+ * response and in the workflow steps; they never authorise a payment, and human
+ * review is still required.
  */
 @Slf4j
 @Component
@@ -40,8 +43,16 @@ public class GuardrailChecker {
     private static final Pattern CURRENCY_AMOUNT_MENTION = Pattern.compile(
             "(?:[¥￥]\\s*(-?(?:\\d++(?:\\.\\d*+)?|\\.\\d++))|(?<!\\d)-?(?:\\d++(?:\\.\\d*+)?|\\.\\d++)\\s*元)");
 
-    @Value("${harness.guardrail.max-compensation-amount:50.0}")
-    private double maxCompensationAmount;
+    private final BigDecimal escalationCap;
+
+    @Autowired
+    public GuardrailChecker(PolicyBundleLoader policyBundleLoader) {
+        this(policyBundleLoader.activeBundle().limits().escalationCap());
+    }
+
+    public GuardrailChecker(BigDecimal escalationCap) {
+        this.escalationCap = Objects.requireNonNull(escalationCap, "escalationCap must not be null");
+    }
 
     public boolean check(String content, String scenario) {
         if (content == null) {
@@ -69,16 +80,15 @@ public class GuardrailChecker {
         return phrasesPassed && amountPassed;
     }
 
-    /** Bounds the authoritative payout to the closed range [0, max]. */
+    /** Bounds the authoritative payout to the closed range [0, escalationCap]. */
     public boolean checkCompensationAmount(BigDecimal amount) {
         if (amount == null) {
             log.warn("Guardrail: no compensation amount to check");
             return false;
         }
-        double value = amount.doubleValue();
-        if (!Double.isFinite(value) || value < 0 || value > maxCompensationAmount) {
+        if (amount.compareTo(BigDecimal.ZERO) < 0 || amount.compareTo(escalationCap) > 0) {
             log.warn("Guardrail: compensation amount {} is outside the allowed range [0, {}]",
-                    amount.toPlainString(), maxCompensationAmount);
+                    amount.toPlainString(), escalationCap.toPlainString());
             return false;
         }
         return true;

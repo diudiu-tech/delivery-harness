@@ -149,12 +149,18 @@ public class OutputFormatter {
         result.put("timeline", timeline.asMap());
 
         // The payout and its provenance. These come from the rule engine and
-        // never from the model; see docs/adr/0002.
+        // never from the model; see docs/adr/0002 and docs/adr/0007.
+        result.put("adjudication_status", ruleDecision.get("adjudication_status"));
         result.put("should_compensate", ruleDecision.get("should_compensate"));
         result.put("suggested_amount", ruleDecision.get("suggested_amount"));
+        result.put("calculated_amount", ruleDecision.get("calculated_amount"));
         result.put("suggested_method", ruleDecision.get("suggested_method"));
         result.put("matched_rules", ruleDecision.get("matched_rules"));
+        result.put("missing_evidence", ruleDecision.get("missing_evidence"));
+        result.put("stale_evidence", ruleDecision.get("stale_evidence"));
         result.put("policy_source", ruleDecision.get("policy_source"));
+        result.put("policy_version", ruleDecision.get("policy_version"));
+        result.put("policy_hash", ruleDecision.get("policy_hash"));
         result.put("amount_decided_by", "rule_engine");
 
         result.put("model_justification", parsed ? justification : null);

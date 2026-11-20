@@ -2,36 +2,35 @@ package com.delivery.harness.tool.compensation;
 
 import com.delivery.harness.common.dto.ToolDefinition;
 import com.delivery.harness.common.dto.ToolResult;
-import com.delivery.harness.common.dto.RuleInfo;
-import com.delivery.harness.knowledge.rule.RuleBaseService;
+import com.delivery.harness.common.evidence.EvidenceType;
+import com.delivery.harness.common.evidence.EvidenceValue;
+import com.delivery.harness.policy.AdjudicationStatus;
+import com.delivery.harness.policy.ComplaintType;
+import com.delivery.harness.policy.DamageLevel;
+import com.delivery.harness.policy.SingleSourcePolicyEngine;
 import com.delivery.harness.tool.gateway.ToolGateway;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Locale;
-import java.util.Optional;
 
 import static com.delivery.harness.common.config.HarnessConstants.TOOL_COMPENSATION_RULE;
 
 /**
- * Mock {@code compensation_rule} tool, and the authoritative source of the
- * compensation amount.
+ * {@code compensation_rule} tool backed by {@link SingleSourcePolicyEngine}.
  *
- * <p>The amount is decided here, deterministically, from the complaint type
- * and the observed overtime. The language model is never asked to produce it —
- * see {@code docs/adr/0002-rule-engine-owns-the-compensation-amount.md}. The
- * result carries the matched rule so the decision can be audited back to a
- * policy line rather than to a sampled token sequence.
+ * <p>All thresholds, caps, approval boundaries, and rule descriptions come
+ * strictly from the active {@code PolicyBundle} (ADR-0007).
  */
 @Component
 @RequiredArgsConstructor
@@ -40,11 +39,8 @@ public class CompensationRuleToolkit {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     private final ToolGateway toolGateway;
-    private final RuleBaseService ruleBaseService;
-
-    /** Payouts at or above this value require a human approver. */
-    @Value("${harness.compensation.approval-threshold:10.0}")
-    private BigDecimal approvalThreshold;
+    private final SingleSourcePolicyEngine policyEngine;
+    private final Clock clock;
 
     @PostConstruct
     public void init() {
@@ -52,162 +48,150 @@ public class CompensationRuleToolkit {
     }
 
     private ToolResult matchRules(Map<String, Object> params) {
-        String complaintType = asString(params.get("complaint_type"), "OVERTIME");
-        complaintType = complaintType.toUpperCase(Locale.ROOT);
-        int overtimeMinutes = Math.max(0, asInt(params.get("overtime_minutes"), 0));
-        BigDecimal orderAmount = asDecimal(params.get("order_amount"), ZERO).max(ZERO);
-        String damageLevel = asString(params.get("damage_level"), "").toUpperCase(Locale.ROOT);
+        Instant observedAt = clock.instant();
+        ComplaintType complaintType = ComplaintType.parse(asString(params.get("complaint_type"), "OVERTIME"))
+                .orElse(null);
+        String rawOrderStatus = asString(params.get("order_status"), "DELIVERED");
+        EvidenceValue<String> orderStatus = EvidenceValue.known(rawOrderStatus, "tool_params", observedAt);
 
-        Decision decision = decide(complaintType, overtimeMinutes, orderAmount, damageLevel);
-        boolean approvalRequired = decision.approvalRequired()
-                || decision.amount().compareTo(approvalThreshold) >= 0;
+        EvidenceValue<Long> overtime = parseLongEvidence(params.get("overtime_minutes"), "overtime_minutes", observedAt);
+        EvidenceValue<BigDecimal> orderAmount = parseDecimalEvidence(
+                params.get("order_amount"), "order_amount", observedAt);
+        EvidenceValue<DamageLevel> damageLevel = parseDamageLevel(params.get("damage_level"), observedAt);
+        Instant evaluationAt = parseInstant(params.get("evaluation_at"), observedAt);
+
+        Map<EvidenceType, EvidenceValue<?>> present = new EnumMap<>(EvidenceType.class);
+        present.put(EvidenceType.ORDER_STATUS, orderStatus);
+        present.put(EvidenceType.ORDER_AMOUNT, orderAmount);
+        present.put(EvidenceType.TIMELINE_OVERTIME_MINUTES, overtime);
+        present.put(EvidenceType.DAMAGE_LEVEL, damageLevel);
+        putPresenceFlag(present, EvidenceType.ORDER_CREATE_TIME,
+                params.get("has_create_time"), observedAt);
+        putPresenceFlag(present, EvidenceType.ORDER_DELIVERY_TIME,
+                params.get("has_delivery_time"), observedAt);
+        putPresenceFlag(present, EvidenceType.ORDER_EXPECTED_DELIVERY_TIME,
+                params.get("has_expected_delivery_time"), observedAt);
+
+        SingleSourcePolicyEngine.AdjudicationResult adjudication = policyEngine.evaluate(
+                new SingleSourcePolicyEngine.PolicyEvaluationInput(
+                        orderStatus, complaintType, overtime, orderAmount, damageLevel, evaluationAt, present));
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("complaint_type", complaintType);
-        result.put("overtime_minutes", overtimeMinutes);
-        result.put("order_amount", orderAmount);
-        result.put("damage_level", damageLevel.isBlank() ? null : damageLevel);
-        result.put("matched_rules", decision.rules());
-        result.put("should_compensate", decision.amount().compareTo(ZERO) > 0);
-        result.put("suggested_amount", decision.amount());
-        result.put("suggested_method", decision.method());
-        result.put("confidence", decision.confidence());
-        result.put("approval_required", approvalRequired);
-        result.put("approval_reason", approvalReason(decision, approvalRequired));
+        result.put("complaint_type", complaintType == null ? params.get("complaint_type") : complaintType.name());
+        result.put("overtime_minutes", overtime.knownValue().orElse(null));
+        result.put("order_amount", orderAmount.knownValue().orElse(null));
+        result.put("damage_level", damageLevel.knownValue().map(Enum::name).orElse(null));
+        result.put("adjudication_status", adjudication.status().name());
+        result.put("matched_rules", matchedRulesList(adjudication));
+        result.put("should_compensate", adjudication.status() == AdjudicationStatus.ELIGIBLE
+                && adjudication.actionableAmount() != null
+                && adjudication.actionableAmount().compareTo(ZERO) > 0);
+        result.put("suggested_amount", adjudication.actionableAmount());
+        result.put("calculated_amount", adjudication.calculatedAmount());
+        result.put("suggested_method", adjudication.suggestedMethod());
+        result.put("approval_required", adjudication.approvalRequired());
+        result.put("approval_reason", String.join("；", adjudication.approvalReasons()));
+        result.put("missing_evidence", adjudication.missingEvidence());
+        result.put("stale_evidence", adjudication.staleEvidence());
         result.put("decided_by", "rule_engine");
-        result.put("policy_source", "rule_base");
+        result.put("policy_source", "policy_bundle");
+        result.put("policy_version", adjudication.policyVersion());
+        result.put("policy_hash", adjudication.policyHash());
         return ToolResult.builder().toolName(TOOL_COMPENSATION_RULE).success(true).data(result).build();
     }
 
-    private Decision decide(String complaintType, int overtimeMinutes, BigDecimal orderAmount, String damageLevel) {
-        Optional<RuleInfo> matched = ruleBaseService.findByType("compensation").stream()
-                .filter(rule -> matches(rule, complaintType, overtimeMinutes))
-                .findFirst();
-        if (matched.isEmpty()) {
-            return new Decision(Collections.emptyList(), ZERO, "需人工判断", "LOW", true);
+    private static List<Map<String, Object>> matchedRulesList(SingleSourcePolicyEngine.AdjudicationResult adj) {
+        if (adj.matchedRuleId() == null) {
+            return Collections.emptyList();
         }
-
-        RuleInfo rule = matched.get();
-        Map<String, Object> actions = rule.getActions() == null ? Collections.emptyMap() : rule.getActions();
-        String amountType = asString(actions.get("amount_type"), "MANUAL");
-        BigDecimal amount = switch (amountType) {
-            case "FIXED" -> asDecimal(actions.get("amount"), ZERO);
-            case "PERCENT_CAPPED" -> percentageOf(orderAmount, asDecimal(actions.get("rate"), ZERO),
-                    asDecimal(actions.get("cap"), orderAmount));
-            case "DAMAGE_LEVEL" -> damageAmount(orderAmount, damageLevel, actions);
-            default -> ZERO;
-        };
-        boolean manualDamageReview = "DAMAGE_LEVEL".equals(amountType) && !("FULL".equals(damageLevel) || "PARTIAL".equals(damageLevel));
-        return new Decision(ruleMetadata(rule), amount,
-                manualDamageReview ? "需人工判断" : asString(actions.get("method"), "需人工判断"),
-                asString(actions.get("confidence"), "LOW"),
-                manualDamageReview || Boolean.TRUE.equals(actions.get("approval_required")));
-    }
-
-    private static boolean matches(RuleInfo rule, String complaintType, int overtimeMinutes) {
-        Map<String, Object> conditions = rule.getConditions();
-        if (conditions == null) {
-            return false;
-        }
-        if (!complaintType.equalsIgnoreCase(asString(conditions.get("complaint_type"), ""))) {
-            return false;
-        }
-        Integer min = asInteger(conditions.get("min_overtime_minutes"));
-        Integer max = asInteger(conditions.get("max_overtime_minutes"));
-        return (min == null || overtimeMinutes >= min) && (max == null || overtimeMinutes <= max);
-    }
-
-    private static BigDecimal damageAmount(BigDecimal orderAmount, String damageLevel, Map<String, Object> actions) {
-        if ("FULL".equals(damageLevel)) {
-            return orderAmount;
-        }
-        if ("PARTIAL".equals(damageLevel)) {
-            return percentageOf(orderAmount, asDecimal(actions.get("partial_rate"), ZERO),
-                    asDecimal(actions.get("partial_cap"), orderAmount));
-        }
-        return ZERO;
-    }
-
-    private static BigDecimal percentageOf(BigDecimal orderAmount, BigDecimal rate, BigDecimal cap) {
-        BigDecimal raw = orderAmount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
-        return raw.min(cap);
-    }
-
-    private String approvalReason(Decision decision, boolean approvalRequired) {
-        if (!approvalRequired) {
-            return "";
-        }
-        if (decision.approvalRequired()) {
-            return "投诉类型需人工核实证据后才能定责";
-        }
-        return "赔付金额达到 " + approvalThreshold.toPlainString() + " 元审批线";
-    }
-
-    private static List<Map<String, Object>> ruleMetadata(RuleInfo rule) {
         Map<String, Object> matched = new LinkedHashMap<>();
-        matched.put("rule_id", rule.getRuleId());
-        matched.put("rule_name", rule.getRuleName());
-        matched.put("content", rule.getContent());
-        matched.put("category", rule.getCategory());
-        matched.put("priority", rule.getPriority());
+        matched.put("rule_id", adj.matchedRuleId());
+        matched.put("rule_name", adj.matchedRuleName());
+        matched.put("content", adj.renderedPolicyText());
         return Collections.singletonList(matched);
+    }
+
+    private static void putPresenceFlag(
+            Map<EvidenceType, EvidenceValue<?>> present, EvidenceType type, Object flag, Instant observedAt) {
+        if (Boolean.FALSE.equals(flag)) {
+            present.put(type, EvidenceValue.unknown("MISSING_TIMESTAMP", type.name() + " is missing"));
+        } else {
+            present.put(type, EvidenceValue.known(Boolean.TRUE, "tool_params", observedAt));
+        }
+    }
+
+    private static EvidenceValue<Long> parseLongEvidence(Object raw, String name, Instant observedAt) {
+        if (raw == null) {
+            return EvidenceValue.unknown("MISSING_FIELD", name + " is missing");
+        }
+        if (raw instanceof Number number) {
+            long value = number.longValue();
+            return value < 0
+                    ? EvidenceValue.invalid(String.valueOf(value), name + " is negative")
+                    : EvidenceValue.known(value, "tool_params", observedAt);
+        }
+        if (raw instanceof String text && !text.isBlank()) {
+            try {
+                long value = Long.parseLong(text.trim());
+                return value < 0
+                        ? EvidenceValue.invalid(text, name + " is negative")
+                        : EvidenceValue.known(value, "tool_params", observedAt);
+            } catch (NumberFormatException e) {
+                return EvidenceValue.invalid(text, name + " is not an integer");
+            }
+        }
+        return EvidenceValue.unknown("MISSING_FIELD", name + " is blank");
+    }
+
+    private static EvidenceValue<BigDecimal> parseDecimalEvidence(Object raw, String name, Instant observedAt) {
+        if (raw == null) {
+            return EvidenceValue.unknown("MISSING_FIELD", name + " is missing");
+        }
+        BigDecimal value;
+        if (raw instanceof BigDecimal decimal) {
+            value = decimal;
+        } else if (raw instanceof Number number) {
+            value = BigDecimal.valueOf(number.doubleValue());
+        } else if (raw instanceof String text && !text.isBlank()) {
+            try {
+                value = new BigDecimal(text.trim());
+            } catch (NumberFormatException e) {
+                return EvidenceValue.invalid(text, name + " is not numeric");
+            }
+        } else {
+            return EvidenceValue.unknown("MISSING_FIELD", name + " is blank");
+        }
+        return value.compareTo(BigDecimal.ZERO) < 0
+                ? EvidenceValue.invalid(value.toPlainString(), name + " is negative")
+                : EvidenceValue.known(value, "tool_params", observedAt);
+    }
+
+    private static EvidenceValue<DamageLevel> parseDamageLevel(Object raw, Instant observedAt) {
+        if (raw == null || raw.toString().isBlank()) {
+            return EvidenceValue.unknown("MISSING_FIELD", "damage_level is missing");
+        }
+        return DamageLevel.parse(raw.toString())
+                .<EvidenceValue<DamageLevel>>map(level -> EvidenceValue.known(level, "tool_params", observedAt))
+                .orElseGet(() -> EvidenceValue.invalid(raw.toString(), "unsupported damage_level"));
+    }
+
+    private static Instant parseInstant(Object raw, Instant fallback) {
+        if (raw instanceof Instant instant) {
+            return instant;
+        }
+        if (raw instanceof String text && !text.isBlank()) {
+            try {
+                return Instant.parse(text.trim());
+            } catch (RuntimeException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
     }
 
     private static String asString(Object value, String fallback) {
         return value == null || value.toString().isBlank() ? fallback : value.toString();
     }
-
-    private static int asInt(Object value, int fallback) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value instanceof String text && !text.isBlank()) {
-            try {
-                return Integer.parseInt(text.trim());
-            } catch (NumberFormatException ignored) {
-                return fallback;
-            }
-        }
-        return fallback;
-    }
-
-    private static Integer asInteger(Object value) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value instanceof String text && !text.isBlank()) {
-            try {
-                return Integer.parseInt(text.trim());
-            } catch (NumberFormatException ignored) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private static BigDecimal asDecimal(Object value, BigDecimal fallback) {
-        if (value instanceof BigDecimal decimal) {
-            return decimal;
-        }
-        if (value instanceof Number number) {
-            return BigDecimal.valueOf(number.doubleValue());
-        }
-        if (value instanceof String text && !text.isBlank()) {
-            try {
-                return new BigDecimal(text.trim());
-            } catch (NumberFormatException ignored) {
-                return fallback;
-            }
-        }
-        return fallback;
-    }
-
-    private record Decision(
-            List<Map<String, Object>> rules,
-            BigDecimal amount,
-            String method,
-            String confidence,
-            boolean approvalRequired) {}
 
     private ToolDefinition buildDefinition() {
         Map<String, ToolDefinition.ParameterDef> parameters = new HashMap<>();
@@ -224,7 +208,7 @@ public class CompensationRuleToolkit {
 
         return ToolDefinition.builder()
                 .toolName(TOOL_COMPENSATION_RULE)
-                .description("匹配赔付规则并给出权威赔付金额（决策来源，非模型生成）")
+                .description("匹配单一策略源 PolicyBundle 并给出权威赔付裁决（非模型生成）")
                 .category("compensation")
                 .parameters(parameters)
                 .build();

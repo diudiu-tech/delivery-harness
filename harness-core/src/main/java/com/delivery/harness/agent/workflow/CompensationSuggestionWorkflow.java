@@ -17,6 +17,7 @@ import com.delivery.harness.llm.gateway.LlmChatRequest;
 import com.delivery.harness.llm.gateway.LlmChatResponse;
 import com.delivery.harness.llm.gateway.LlmGateway;
 import com.delivery.harness.llm.gateway.LlmMessage;
+import com.delivery.harness.policy.PolicyBundleLoader;
 import com.delivery.harness.tool.gateway.ToolGateway;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,7 @@ public class CompensationSuggestionWorkflow {
     private final LlmGateway llmGateway;
     private final OutputFormatter outputFormatter;
     private final GuardrailChecker guardrailChecker;
+    private final PolicyBundleLoader policyBundleLoader;
     private final Clock clock;
 
     @PostConstruct
@@ -98,16 +100,25 @@ public class CompensationSuggestionWorkflow {
         // revision hard-coded 10 minutes, which pinned every request to the
         // lowest compensation tier and made the top two tiers unreachable.
         long timelineStart = System.nanoTime();
-        OrderTimeline timeline = OrderTimeline.of(order, clock, MinuteRoundingMode.FLOOR_TRUNCATE);
+        MinuteRoundingMode roundingMode = policyBundleLoader.activeBundle().minuteRoundingMode();
+        OrderTimeline timeline = OrderTimeline.of(order, clock, roundingMode);
         steps.record(HarnessConstants.STEP_ANALYSIS, "时间轴拆解", HarnessConstants.STATUS_SUCCESS,
                 Collections.singletonMap("order_id", orderId), timeline.asMap(),
                 StepRecorder.elapsedMs(timelineStart));
 
-        // Step 3: the authoritative decision.
+        // Step 3: the authoritative decision from SingleSourcePolicyEngine.
         Map<String, Object> ruleParams = new LinkedHashMap<>();
         ruleParams.put("complaint_type", complaintType);
+        ruleParams.put("order_status", order.getStatus());
         ruleParams.put("overtime_minutes", timeline.overtimeMinutesOrEmpty().orElse(null));
         ruleParams.put("order_amount", order.getOrderAmount());
+        ruleParams.put("has_create_time", order.getCreateTime() != null);
+        ruleParams.put("has_delivery_time", order.getDeliveryTime() != null);
+        ruleParams.put("has_expected_delivery_time", order.getExpectedDeliveryTime() != null);
+        if (order.getDeliveryTime() != null && timeline.zone().isKnown()) {
+            ruleParams.put("evaluation_at",
+                    order.getDeliveryTime().atZone(timeline.zone().knownValue().orElseThrow()).toInstant().toString());
+        }
         if (damageLevel != null && !damageLevel.isBlank()) {
             ruleParams.put("damage_level", damageLevel);
         }
@@ -119,6 +130,7 @@ public class CompensationSuggestionWorkflow {
         }
         Map<String, Object> decision = JsonUtil.toMap(ruleResult.getData());
         BigDecimal authoritativeAmount = toAmount(decision.get("suggested_amount"));
+        BigDecimal calculatedAmount = toAmount(decision.get("calculated_amount"));
 
         // Step 4: similar cases, keyed on the complaint and the matched tier.
         String query = buildRetrievalQuery(complaintType, decision, timeline);
@@ -173,10 +185,12 @@ public class CompensationSuggestionWorkflow {
                 Collections.singletonMap("scenario", HarnessConstants.SCENARIO_COMPENSATION), llmOutput,
                 StepRecorder.elapsedMs(llmStart), llmResponse.getErrorMessage());
 
-        // Step 6: the guardrail checks the number that will actually be paid,
-        // plus the language and any conflicting amount the model produced.
+        // Step 6: the guardrail checks the calculated/authoritative number
+        // against the policy bundle's escalation cap, plus language and any
+        // conflicting amount the model produced.
         long guardrailStart = System.nanoTime();
-        boolean amountWithinPolicy = guardrailChecker.checkCompensationAmount(authoritativeAmount);
+        BigDecimal amountToCheck = authoritativeAmount != null ? authoritativeAmount : calculatedAmount;
+        boolean amountWithinPolicy = amountToCheck == null || guardrailChecker.checkCompensationAmount(amountToCheck);
         boolean languageAcceptable = guardrailChecker.checkForbiddenPhrases(llmResponse.getContent());
         boolean modelAmountConflicts = guardrailChecker.mentionsConflictingCompensationAmount(
                 llmResponse.getContent(), authoritativeAmount);
@@ -188,7 +202,7 @@ public class CompensationSuggestionWorkflow {
         guardrailOutput.put("language_acceptable", languageAcceptable);
         guardrailOutput.put("model_proposed_amount", modelAmountConflicts);
         guardrailOutput.put("model_amount_conflicts_with_policy", modelAmountConflicts);
-        guardrailOutput.put("checked_amount", authoritativeAmount);
+        guardrailOutput.put("checked_amount", amountToCheck);
         steps.record(HarnessConstants.STEP_GUARDRAIL, "赔付金额与措辞校验",
                 guardrailPassed ? HarnessConstants.STATUS_SUCCESS : HarnessConstants.STATUS_FAILED,
                 Collections.emptyMap(), guardrailOutput, StepRecorder.elapsedMs(guardrailStart));

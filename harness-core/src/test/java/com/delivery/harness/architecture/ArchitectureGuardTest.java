@@ -38,7 +38,9 @@ class ArchitectureGuardTest {
         List<String> violations = new ArrayList<>();
         for (ClassInspection clazz : inspectAllClasses(CORE_CLASSES)) {
             for (String utf8 : clazz.utf8Constants()) {
-                if (utf8.contains("labels.json") || utf8.contains("com/delivery/harness/eval/labels")) {
+                if (utf8.contains("labels.json")
+                        || utf8.contains("text-corpus.json")
+                        || utf8.contains("com/delivery/harness/eval/labels")) {
                     violations.add(clazz.className() + " references forbidden label artifact: " + utf8);
                 }
             }

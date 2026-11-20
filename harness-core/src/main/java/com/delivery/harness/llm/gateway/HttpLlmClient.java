@@ -23,7 +23,7 @@ public class HttpLlmClient implements LlmClient {
     @Value("${harness.llm.default-endpoint:http://localhost:11434}")
     private String defaultEndpoint;
 
-    @Value("${harness.llm.timeout-seconds:120}")
+    @Value("${harness.llm.timeout-seconds:15}")
     private int timeoutSeconds;
 
     @Value("${harness.llm.api-key:}")

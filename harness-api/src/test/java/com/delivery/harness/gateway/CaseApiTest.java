@@ -160,4 +160,16 @@ class CaseApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.traceId").value(traceId));
     }
+
+    @Test
+    void escalatesKnownPromptInjectionAutomaticallyEvenInZeroLlmMode() throws Exception {
+        mockMvc.perform(post("/api/cases")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"order_id\":\"ORD-IM-NEG-INJ-01\",\"complaint_type\":\"OVERTIME\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.status").value("ESCALATED"))
+                .andExpect(jsonPath("$.data.runs[0].untrustedTextDetected").value(true))
+                .andExpect(jsonPath("$.data.runs[0].adjudication.status").value("ELIGIBLE"))
+                .andExpect(jsonPath("$.data.runs[0].adjudication.actionableAmount").value(1.00));
+    }
 }

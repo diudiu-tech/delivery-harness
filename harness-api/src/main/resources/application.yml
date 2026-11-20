@@ -20,6 +20,8 @@ harness:
     default-model: ${HARNESS_LLM_MODEL:qwen2.5:7b}
     api-key: ${HARNESS_LLM_API_KEY:}
     timeout-seconds: ${HARNESS_LLM_TIMEOUT_SECONDS:15}
+    extraction:
+      enabled: ${HARNESS_LLM_EXTRACTION_ENABLED:false}
   cases:
     max-cases: ${HARNESS_MAX_CASES:500}
   observe:

@@ -6,7 +6,6 @@ import com.delivery.harness.common.evidence.EvidenceType;
 import com.delivery.harness.common.evidence.EvidenceValue;
 import com.delivery.harness.common.evidence.MinuteRoundingMode;
 import com.delivery.harness.policy.PolicyBundleLoader;
-import com.delivery.harness.tool.eta.EtaToolkit;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -111,10 +110,10 @@ public class SyntheticEvidenceSource implements EvidenceSource {
         items.add(new EvidenceItem("EV-TL-OVERTIME", EvidenceType.TIMELINE_OVERTIME_MINUTES,
                 timeline.overtimeEvidence()));
 
-        long clearEta = EtaToolkit.estimateMinutes(
+        long clearEta = RoadEtaEstimator.estimateMinutes(
                 order.getPickupLat(), order.getPickupLng(),
                 order.getDeliveryLat(), order.getDeliveryLng(), "晴");
-        long weatherEta = EtaToolkit.estimateMinutes(
+        long weatherEta = RoadEtaEstimator.estimateMinutes(
                 order.getPickupLat(), order.getPickupLng(),
                 order.getDeliveryLat(), order.getDeliveryLng(), spec.weather());
         items.add(new EvidenceItem("EV-ETA-CLEAR", EvidenceType.ETA_CLEAR_MINUTES,

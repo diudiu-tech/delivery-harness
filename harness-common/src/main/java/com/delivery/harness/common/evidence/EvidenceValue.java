@@ -1,5 +1,8 @@
 package com.delivery.harness.common.evidence;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -22,6 +25,12 @@ import java.util.function.Function;
  * keeping only {@code observedAt} and {@code asOf} preserves snapshot
  * immutability and hash stability across policy changes.
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "state")
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = EvidenceValue.Known.class, name = "KNOWN"),
+    @JsonSubTypes.Type(value = EvidenceValue.Unknown.class, name = "UNKNOWN"),
+    @JsonSubTypes.Type(value = EvidenceValue.Invalid.class, name = "INVALID")
+})
 public sealed interface EvidenceValue<T>
         permits EvidenceValue.Known, EvidenceValue.Unknown, EvidenceValue.Invalid {
 

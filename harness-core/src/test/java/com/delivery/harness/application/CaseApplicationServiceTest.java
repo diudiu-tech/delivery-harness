@@ -1,0 +1,200 @@
+package com.delivery.harness.application;
+
+import com.delivery.harness.cases.CaseStatus;
+import com.delivery.harness.cases.DecisionAction;
+import com.delivery.harness.cases.DeliveryCase;
+import com.delivery.harness.cases.InMemoryCaseStore;
+import com.delivery.harness.cases.RunHealth;
+import com.delivery.harness.common.exception.BizException;
+import com.delivery.harness.common.exception.ConflictException;
+import com.delivery.harness.common.exception.ResourceNotFoundException;
+import com.delivery.harness.diagnosis.DeterministicResidualEngine;
+import com.delivery.harness.evidence.SyntheticEvidenceSource;
+import com.delivery.harness.observe.metrics.MetricsService;
+import com.delivery.harness.observe.trace.TraceService;
+import com.delivery.harness.policy.AdjudicationStatus;
+import com.delivery.harness.policy.PolicyBundleLoader;
+import com.delivery.harness.policy.SingleSourcePolicyEngine;
+import com.delivery.harness.template.DeterministicCustomerTemplateRenderer;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class CaseApplicationServiceTest {
+
+    private static final Clock FIXED_CLOCK = Clock.fixed(
+            Instant.parse("2026-09-01T04:05:00Z"), ZoneId.of("Asia/Shanghai"));
+
+    private CaseApplicationService service;
+    private TraceService traceService;
+
+    @BeforeEach
+    void setUp() {
+        PolicyBundleLoader loader = PolicyBundleLoader.loadDefault();
+        SyntheticEvidenceSource evidenceSource = new SyntheticEvidenceSource(loader);
+        InMemoryCaseStore store = new InMemoryCaseStore(50);
+        SingleSourcePolicyEngine policyEngine = new SingleSourcePolicyEngine(loader);
+        DeterministicResidualEngine residualEngine = new DeterministicResidualEngine(loader);
+        DeterministicCustomerTemplateRenderer templateRenderer = new DeterministicCustomerTemplateRenderer();
+        traceService = new TraceService(50);
+        MetricsService metricsService = new MetricsService();
+        service = new CaseApplicationService(
+                evidenceSource, store, loader, policyEngine, residualEngine,
+                templateRenderer, traceService, metricsService, FIXED_CLOCK, null);
+    }
+
+    @Test
+    void enforcesIdempotencyKeyAndSingleOpenCaseRule() {
+        CaseApplicationService.CreateCaseResult first = service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-MERCHANT-01", "OVERTIME", "idem-1"));
+        CaseApplicationService.CreateCaseResult replay = service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-MERCHANT-01", "OVERTIME", "idem-1"));
+
+        assertAll(
+                () -> assertFalse(first.idempotentReplay()),
+                () -> assertTrue(replay.idempotentReplay()),
+                () -> assertEquals(first.deliveryCase().caseId(), replay.deliveryCase().caseId()),
+                () -> assertEquals(CaseStatus.PENDING_DECISION, first.deliveryCase().status()),
+                () -> assertEquals(RunHealth.OK, first.deliveryCase().latestRun().runHealth()),
+                () -> assertTrue(traceService.getTrace(first.deliveryCase().latestRun().traceId()).isPresent()));
+
+        assertThrows(ConflictException.class, () -> service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-MERCHANT-01", "OVERTIME", "idem-2")));
+    }
+
+    @Test
+    void throwsNotFoundForUnknownOrder() {
+        assertThrows(ResourceNotFoundException.class, () -> service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-NOPE", "OVERTIME", null)));
+    }
+
+    @Test
+    void completesAttestApproveReceiptAndReopenLifecycle() {
+        DeliveryCase created = service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-IM-DAMAGE-01", "DAMAGED", null))
+                .deliveryCase();
+        String run1Id = created.latestRun().runId();
+
+        assertAll(
+                () -> assertEquals(CaseStatus.WAITING_EVIDENCE, created.status()),
+                () -> assertEquals(AdjudicationStatus.NEEDS_EVIDENCE, created.latestRun().adjudication().status()),
+                () -> assertNull(created.latestRun().adjudication().actionableAmount()),
+                () -> assertFalse(created.latestCustomerDraft().executionCompleted()));
+
+        // Attest DAMAGE_LEVEL=PARTIAL -> triggers Run #2 -> ELIGIBLE 20.00 -> ESCALATED.
+        DeliveryCase attested = service.attestEvidence(
+                created.caseId(),
+                new CaseApplicationService.AttestCommand("DAMAGE_LEVEL", "PARTIAL", "agent-1", created.version()));
+        String run2Id = attested.latestRun().runId();
+
+        assertAll(
+                () -> assertEquals(2, attested.runs().size()),
+                () -> assertNotEquals(run1Id, run2Id),
+                () -> assertEquals(CaseStatus.ESCALATED, attested.status()),
+                () -> assertEquals(AdjudicationStatus.ELIGIBLE, attested.latestRun().adjudication().status()),
+                () -> assertEquals(new BigDecimal("20.00"), attested.latestRun().adjudication().actionableAmount()),
+                () -> assertTrue(attested.latestSnapshot().containsEvidenceId("EV-HUMAN-01")));
+
+        // Stale runId must fail with 409 Conflict.
+        assertThrows(ConflictException.class, () -> service.submitDecision(
+                attested.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        run1Id, attested.version(), DecisionAction.APPROVE, "sup-1",
+                        null, null, null, null, null, null, null)));
+
+        // Supervisor approves -> APPROVED_PENDING_EXECUTION.
+        DeliveryCase approved = service.submitDecision(
+                attested.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        run2Id, attested.version(), DecisionAction.APPROVE, "sup-1",
+                        null, null, null, "MERCHANT", null, null, "核验照片确认部分洒漏"));
+        assertEquals(CaseStatus.APPROVED_PENDING_EXECUTION, approved.status());
+        assertFalse(approved.latestCustomerDraft().executionCompleted());
+
+        // Record external execution receipt -> CLOSED + unlocks executed template.
+        DeliveryCase closed = service.submitDecision(
+                approved.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        run2Id, approved.version(), DecisionAction.RECORD_EXECUTION_RECEIPT, "ops-1",
+                        null, null, null, null, null, "EXT-RCPT-9001", null));
+        assertAll(
+                () -> assertEquals(CaseStatus.CLOSED, closed.status()),
+                () -> assertEquals("EXT-RCPT-9001", closed.executionReceiptId()),
+                () -> assertTrue(closed.latestCustomerDraft().executionCompleted()),
+                () -> assertTrue(closed.latestCustomerDraft().message().contains("已完成赔付处理")));
+
+        // Reopen from CLOSED immediately executes Run #3 and never stalls in OPEN_INVESTIGATING.
+        DeliveryCase reopened = service.submitDecision(
+                closed.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        run2Id, closed.version(), DecisionAction.REOPEN, "sup-1",
+                        null, null, null, null, null, null, "用户补充申诉"));
+        assertAll(
+                () -> assertEquals(3, reopened.runs().size()),
+                () -> assertNotEquals(CaseStatus.OPEN_INVESTIGATING, reopened.status()),
+                () -> assertNull(reopened.executionReceiptId()),
+                () -> assertFalse(reopened.latestCustomerDraft().executionCompleted()));
+    }
+
+    @Test
+    void enforcesEscalationOnOverCapOverrideAndRequiresExceptionReasonOnApprove() {
+        DeliveryCase created = service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-MERCHANT-01", "OVERTIME", null))
+                .deliveryCase();
+
+        // Override amount 60.00 > escalationCap (50.00) must force ESCALATED.
+        DeliveryCase escalated = service.submitDecision(
+                created.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        created.latestRun().runId(), created.version(), DecisionAction.OVERRIDE, "agent-1",
+                        "VIP_EXCEPTION", new BigDecimal("60.00"), "原路退款", "PLATFORM", null, null, "特殊客诉"));
+        assertEquals(CaseStatus.ESCALATED, escalated.status());
+
+        // Supervisor approving > escalationCap without exceptionReason must fail with 400.
+        assertThrows(BizException.class, () -> service.submitDecision(
+                escalated.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        escalated.latestRun().runId(), escalated.version(), DecisionAction.APPROVE, "sup-1",
+                        null, null, null, null, null, null, null)));
+
+        DeliveryCase approved = service.submitDecision(
+                escalated.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        escalated.latestRun().runId(), escalated.version(), DecisionAction.APPROVE, "sup-1",
+                        null, null, null, null, "主管特批大额客诉", null, null));
+        assertEquals(CaseStatus.APPROVED_PENDING_EXECUTION, approved.status());
+    }
+
+    @Test
+    void supportsRequestEvidenceAndCloseEscapeHatch() {
+        DeliveryCase created = service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-MERCHANT-01", "OVERTIME", null))
+                .deliveryCase();
+
+        DeliveryCase waiting = service.submitDecision(
+                created.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        created.latestRun().runId(), created.version(), DecisionAction.REQUEST_EVIDENCE, "agent-1",
+                        null, null, null, null, null, null, "需补充签收凭证"));
+        assertEquals(CaseStatus.WAITING_EVIDENCE, waiting.status());
+
+        DeliveryCase closed = service.submitDecision(
+                waiting.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        waiting.latestRun().runId(), waiting.version(), DecisionAction.CLOSE, "agent-1",
+                        null, null, null, null, null, null, "用户 48 小时未补证关闭"));
+        assertEquals(CaseStatus.CLOSED, closed.status());
+    }
+}

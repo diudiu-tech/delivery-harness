@@ -30,8 +30,10 @@ class ApiArchitectureGuardTest {
                 String source = Files.readString(javaFile);
                 if (source.contains("com.delivery.harness.tool.")
                         || source.contains("SyntheticEvidenceSource")
+                        || source.contains("InMemoryCaseStore")
+                        || source.contains("CaseStore")
                         || source.contains("SingleSourcePolicyEngine")) {
-                    violations.add(javaFile.getFileName() + " bypasses application orchestration");
+                    violations.add(javaFile.getFileName() + " bypasses CaseApplicationService orchestration");
                 }
             }
         }

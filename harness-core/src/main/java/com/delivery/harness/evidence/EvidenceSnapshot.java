@@ -2,6 +2,7 @@ package com.delivery.harness.evidence;
 
 import com.delivery.harness.common.evidence.EvidenceType;
 import com.delivery.harness.common.evidence.EvidenceValue;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -123,38 +124,47 @@ public final class EvidenceSnapshot {
         return CanonicalJson.sha256(CanonicalJson.serialize(payload, zoneId));
     }
 
+    @JsonProperty("snapshotId")
     public String snapshotId() {
         return snapshotId;
     }
 
+    @JsonProperty("orderId")
     public String orderId() {
         return orderId;
     }
 
+    @JsonProperty("zoneId")
     public ZoneId zoneId() {
         return zoneId;
     }
 
+    @JsonProperty("capturedAt")
     public Instant capturedAt() {
         return capturedAt;
     }
 
+    @JsonProperty("asOf")
     public Instant asOf() {
         return asOf;
     }
 
+    @JsonProperty("sourceMode")
     public String sourceMode() {
         return sourceMode;
     }
 
+    @JsonProperty("items")
     public Map<String, EvidenceItem> items() {
         return items;
     }
 
+    @JsonProperty("messages")
     public List<ConversationMessage> messages() {
         return messages;
     }
 
+    @JsonProperty("contentHash")
     public String contentHash() {
         return contentHash;
     }

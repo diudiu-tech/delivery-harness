@@ -21,102 +21,47 @@ class HarnessApplicationTest {
     private MockMvc mockMvc;
 
     @Test
-    void contextLoadsAndExposesMetricsEndpoint() throws Exception {
-        mockMvc.perform(get("/api/v1/observe/metrics"))
+    void contextLoadsAndExposesMetricsAndActivePolicy() throws Exception {
+        mockMvc.perform(get("/api/observe/metrics"))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("X-Trace-Id"))
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.traceId").isNotEmpty());
-    }
+                .andExpect(jsonPath("$.code").value(0));
 
-    @Test
-    void rejectsAnalysisWithoutOrderId() throws Exception {
-        mockMvc.perform(post("/api/v1/analyze/abnormal-order")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.message").value("Invalid request"));
-    }
-
-    @Test
-    void ingestsAndFindsSyntheticKnowledge() throws Exception {
-        mockMvc.perform(post("/api/v1/knowledge/ingest")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"Synthetic policy\",\"sourceType\":\"document\","
-                                + "\"category\":\"test\",\"content\":\"synthetic-needle policy text\"}"))
+        mockMvc.perform(get("/api/policies/active"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.title").value("Synthetic policy"));
-
-        mockMvc.perform(post("/api/v1/knowledge/search")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"query\":\"synthetic-needle\",\"sourceTypes\":[\"document\"],\"topK\":5}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.totalFound").value(1))
-                .andExpect(jsonPath("$.data.items[0].sourceType").value("document"));
+                .andExpect(jsonPath("$.data.bundle.policyVersion").value("policy-v1.0.0"))
+                .andExpect(jsonPath("$.data.policyHash").isNotEmpty())
+                .andExpect(jsonPath("$.data.renderedRules").isNotEmpty());
     }
 
     @Test
-    void rejectsChunkOverlapThatCannotAdvance() throws Exception {
-        String content = "x".repeat(200);
-        String request = String.format(
-                "{\"title\":\"Invalid chunks\",\"sourceType\":\"document\","
-                        + "\"content\":\"%s\",\"chunkSize\":100,\"chunkOverlap\":100}",
-                content);
-
-        mockMvc.perform(post("/api/v1/knowledge/ingest")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(request))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
-    }
-
-    @Test
-    void rejectsChunkOverlapWithoutChunkSize() throws Exception {
-        mockMvc.perform(post("/api/v1/knowledge/ingest")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\":\"Invalid chunks\",\"sourceType\":\"document\","
-                                + "\"content\":\"policy text\",\"chunkOverlap\":10}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
-    }
-
-    @Test
-    void rejectsEvalCaseWithoutRequiredFields() throws Exception {
-        mockMvc.perform(post("/api/v1/eval/cases")
+    void rejectsCaseCreationWithoutOrderIdOrWithInvalidComplaintType() throws Exception {
+        mockMvc.perform(post("/api/cases")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
-    }
 
-    @Test
-    void rejectsNullEvalCaseIdElement() throws Exception {
-        mockMvc.perform(post("/api/v1/eval/run")
+        mockMvc.perform(post("/api/cases")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"caseIds\":[null]}"))
+                        .content("{\"order_id\":\"ORD-MERCHANT-01\",\"complaint_type\":\"NOT_A_TYPE\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test
-    void returnsHttpNotFoundForMissingEvalRun() throws Exception {
-        mockMvc.perform(get("/api/v1/eval/run/missing-run"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value(404));
+    void hidesDemoFixturesOutsideDemoProfile() throws Exception {
+        mockMvc.perform(get("/api/demo/fixtures"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void returnsHttpNotFoundForMissingEvalResults() throws Exception {
-        mockMvc.perform(get("/api/v1/eval/run/missing-run/results"))
+    void returnsNotFoundForMissingCaseAndTrace() throws Exception {
+        mockMvc.perform(get("/api/cases/CASE-MISSING"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(404));
-    }
 
-    @Test
-    void returnsHttpNotFoundForMissingTrace() throws Exception {
-        mockMvc.perform(get("/api/v1/observe/trace/missing-trace"))
+        mockMvc.perform(get("/api/observe/traces/missing-trace"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(404));
     }

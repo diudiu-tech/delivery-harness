@@ -246,7 +246,7 @@ public class SingleSourcePolicyEngine {
                 .getOrDefault(result.status(), RoutingAction.ESCALATED);
 
         RoutingAction chosen = base;
-        if (result.approvalRequired()) {
+        if (result.approvalRequired() && result.status() != AdjudicationStatus.NEEDS_EVIDENCE) {
             chosen = maxSeverity(chosen, matrix.onApprovalRequired());
         }
         if (hasUnconfirmedConflictSignal) {

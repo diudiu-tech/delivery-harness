@@ -69,6 +69,8 @@ class ArchitectureGuardTest {
         for (ClassInspection clazz : inspectAllClasses(CORE_CLASSES)) {
             boolean inPureKernel = clazz.className().startsWith("com/delivery/harness/policy/")
                     || clazz.className().startsWith("com/delivery/harness/evidence/")
+                    || clazz.className().startsWith("com/delivery/harness/diagnosis/")
+                    || clazz.className().startsWith("com/delivery/harness/template/")
                     || clazz.className().startsWith("com/delivery/harness/agent/analysis/");
             if (!inPureKernel) {
                 continue;

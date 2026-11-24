@@ -83,7 +83,7 @@ function statusBadgeClass(status) {
   switch (status) {
     case "ELIGIBLE":
     case "KNOWN":
-    case "CLEAN":
+    case "OK":
     case "APPROVED_PENDING_EXECUTION":
     case "CLOSED":
       return "badge-green";
@@ -96,6 +96,7 @@ function statusBadgeClass(status) {
     case "EXCEEDS_CAP_ESCALATE":
     case "ESCALATED":
     case "INVALID":
+    case "FAILED":
       return "badge-red";
     case "INELIGIBLE":
     case "NO_OVERTIME_ANOMALY":
@@ -217,6 +218,10 @@ function renderCaseHeader(c, run) {
   if (c.pendingOverrideAmount !== undefined && c.pendingOverrideAmount !== null) {
     container.appendChild(renderKv("Pending Override", formatAmount(c.pendingOverrideAmount)));
   }
+  if (c.approvedPayoutAmount !== undefined && c.approvedPayoutAmount !== null) {
+    const methodSuffix = c.approvedPayoutMethod ? ` (${c.approvedPayoutMethod})` : "";
+    container.appendChild(renderKv("Approved Payout", `${formatAmount(c.approvedPayoutAmount)}${methodSuffix}`));
+  }
   if (c.executionReceiptId) {
     container.appendChild(renderKv("Execution Receipt", c.executionReceiptId));
   }
@@ -310,7 +315,7 @@ function renderDiagnosis(run) {
 
 function buildHighlightedParagraph(text, spans) {
   const p = el("p", { className: "msg-text" });
-  const raw = String(text || "");
+  const raw = String(text || "").normalize("NFKC").trim();
   if (!spans || spans.length === 0) {
     p.textContent = raw;
     return p;
@@ -579,6 +584,9 @@ function renderAudit(c) {
     if (d.finalAmount !== undefined && d.finalAmount !== null) {
       details.push(`amount=${formatAmount(d.finalAmount)}`);
     }
+    if (d.finalMethod) {
+      details.push(`method=${d.finalMethod}`);
+    }
     if (d.overrideReasonCode) {
       details.push(`override=${d.overrideReasonCode}`);
     }
@@ -814,6 +822,10 @@ async function onDecisionSubmit(event) {
   const amountStr = $("decision-amount").value.trim();
   if (amountStr !== "") {
     payload.final_amount = Number(amountStr);
+  }
+  const methodStr = $("decision-method").value.trim();
+  if (methodStr) {
+    payload.final_method = methodStr;
   }
   const overrideCode = $("decision-override-code").value.trim();
   if (overrideCode) {

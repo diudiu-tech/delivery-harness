@@ -16,12 +16,15 @@ import java.util.regex.Pattern;
  * Deterministic verifier enforcing the trust boundary around unstructured
  * extraction (ADR-0005):
  * <ul>
- *   <li>defense-in-depth prompt-injection pre-scan marking {@code UNTRUSTED_TEXT}</li>
- *   <li>NFKC + width normalization and single-message exact substring offset match</li>
+ *   <li>defense-in-depth prompt-injection pre-scan marking {@code UNTRUSTED_TEXT}
+ *       (stripping invisible format/control chars and collapsing whitespace/separators)</li>
+ *   <li>NFKC + Unicode {@code strip()} normalization and single-message exact
+ *       substring offset match across all occurrences</li>
  *   <li>minimum quote length to prevent single-word cherry-picking</li>
  *   <li>metadata-sourced {@link SpeakerRole} enforcement (rejects self-serving
  *       rider statements for {@code CUSTOMER_CHANGED_ADDRESS})</li>
- *   <li>preceding and inline negation-window detection</li>
+ *   <li>preceding and inline negation-window detection with multi-occurrence
+ *       awareness</li>
  *   <li>zero digits/currency symbols in free-text {@code statement} fields</li>
  * </ul>
  */
@@ -31,10 +34,14 @@ public class ClaimVerifier {
     public static final int MIN_QUOTE_LENGTH = 4;
     private static final int NEGATION_WINDOW_CHARS = 12;
 
-    private static final List<String> INJECTION_PATTERNS = List.of(
+    private static final List<String> CJK_INJECTION_PATTERNS = List.of(
             "忽略以上", "忽略之前", "忽略所有指令", "系统提示", "直接输出",
-            "免除骑手责任", "跳过人工", "ignore previous", "ignore above",
-            "ignore all instructions", "system prompt", "developer prompt"
+            "免除骑手责任", "跳过人工"
+    );
+
+    private static final List<String> EN_INJECTION_PATTERNS = List.of(
+            "ignore previous", "ignore above", "ignore all instructions",
+            "system prompt", "developer prompt"
     );
 
     private static final List<String> NEGATION_CUES = List.of(
@@ -43,7 +50,10 @@ public class ClaimVerifier {
             "不换", "没有洒", "没洒", "没有撒", "没撒", "未洒", "完好"
     );
 
-    private static final Pattern FREE_TEXT_DIGIT_OR_CURRENCY = Pattern.compile("[0-9０-９¥￥元]");
+    private static final Pattern INVISIBLE_FORMAT_OR_CONTROL = Pattern.compile("[\\p{Cf}\\p{Cc}&&[^\\r\\n\\t]]");
+    private static final Pattern WHITESPACE_RUN = Pattern.compile("\\s+");
+    private static final Pattern CJK_INLINE_SEPARATORS = Pattern.compile("[\\s·•._\\-|/\\\\]+");
+    private static final Pattern FREE_TEXT_DIGIT_OR_CURRENCY = Pattern.compile("[0-9０-９¥￥$€£元块角分]");
 
     public record CandidateClaim(
             String signalType,
@@ -62,17 +72,28 @@ public class ClaimVerifier {
 
     /**
      * Defense-in-depth pre-scan for prompt-injection markers across snapshot
-     * conversation text. Matches mark the text untrusted so extraction is
-     * skipped and the entire case routes to escalation.
+     * conversation text. Strips Unicode zero-width/format characters and
+     * collapses whitespace/inline separators before matching. Matches mark the
+     * text untrusted so extraction is skipped and the case routes to escalation.
      */
     public boolean detectUntrustedText(EvidenceSnapshot snapshot) {
         if (snapshot == null || snapshot.messages().isEmpty()) {
             return false;
         }
         for (ConversationMessage message : snapshot.messages()) {
-            String normalized = normalize(message.text()).toLowerCase(Locale.ROOT);
-            for (String marker : INJECTION_PATTERNS) {
-                if (normalized.contains(marker)) {
+            String cleaned = INVISIBLE_FORMAT_OR_CONTROL
+                    .matcher(normalize(message.text()))
+                    .replaceAll("")
+                    .toLowerCase(Locale.ROOT);
+            String collapsedSpaces = WHITESPACE_RUN.matcher(cleaned).replaceAll(" ");
+            for (String marker : EN_INJECTION_PATTERNS) {
+                if (collapsedSpaces.contains(marker)) {
+                    return true;
+                }
+            }
+            String compactCjk = CJK_INLINE_SEPARATORS.matcher(cleaned).replaceAll("");
+            for (String marker : CJK_INJECTION_PATTERNS) {
+                if (compactCjk.contains(marker)) {
                     return true;
                 }
             }
@@ -113,12 +134,11 @@ public class ClaimVerifier {
                 continue;
             }
 
-            int start = normalizedMsg.indexOf(normalizedQuote);
-            if (start < 0) {
+            List<int[]> occurrences = findAllOccurrences(normalizedMsg, normalizedQuote);
+            if (occurrences.isEmpty()) {
                 rejections.add("QUOTE_NOT_FOUND_IN_SINGLE_MESSAGE:" + candidate.sourceEvidenceId());
                 continue;
             }
-            int end = start + normalizedQuote.length();
 
             if (!isSpeakerAuthorizedForSignal(signalType, message.speakerRole())) {
                 rejections.add("SELF_SERVING_OR_UNAUTHORIZED_SPEAKER:"
@@ -126,7 +146,8 @@ public class ClaimVerifier {
                 continue;
             }
 
-            if (isNegated(normalizedMsg, start, end)) {
+            int[] validSpan = selectValidNonNegatedSpan(normalizedMsg, occurrences);
+            if (validSpan == null) {
                 rejections.add("NEGATED_CLAIM:" + signalType.name() + ":" + candidate.sourceEvidenceId());
                 continue;
             }
@@ -141,8 +162,8 @@ public class ClaimVerifier {
                     signalType,
                     message.speakerRole(),
                     message.evidenceId(),
-                    start,
-                    end,
+                    validSpan[0],
+                    validSpan[1],
                     normalizedQuote,
                     extractor,
                     promptHash,
@@ -156,7 +177,38 @@ public class ClaimVerifier {
         if (raw == null) {
             return "";
         }
-        return Normalizer.normalize(raw, Normalizer.Form.NFKC).trim();
+        return Normalizer.normalize(raw, Normalizer.Form.NFKC).strip();
+    }
+
+    private static List<int[]> findAllOccurrences(String text, String sub) {
+        List<int[]> spans = new ArrayList<>();
+        int from = 0;
+        while (from <= text.length() - sub.length()) {
+            int idx = text.indexOf(sub, from);
+            if (idx < 0) {
+                break;
+            }
+            spans.add(new int[] {idx, idx + sub.length()});
+            from = idx + 1;
+        }
+        return spans;
+    }
+
+    /**
+     * Selects a non-negated occurrence of the quote, provided no later
+     * occurrence in the same message explicitly negates/retracts it.
+     */
+    private static int[] selectValidNonNegatedSpan(String normalizedMsg, List<int[]> occurrences) {
+        int[] latest = occurrences.get(occurrences.size() - 1);
+        if (isNegated(normalizedMsg, latest[0], latest[1])) {
+            return null;
+        }
+        for (int[] span : occurrences) {
+            if (!isNegated(normalizedMsg, span[0], span[1])) {
+                return span;
+            }
+        }
+        return null;
     }
 
     private static boolean isSpeakerAuthorizedForSignal(SignalType type, SpeakerRole role) {

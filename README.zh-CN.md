@@ -175,7 +175,7 @@ curl --fail-with-body \
 ./mvnw clean verify
 ```
 
-当前离线测试共 **76 项**（`harness-common`: 9，`harness-core`: 55，`harness-api`: 12），完全不依赖 Ollama 或 Docker。核心防线包括：
+当前离线测试共 **78 项**（`harness-common`: 9，`harness-core`: 57，`harness-api`: 12），完全不依赖 Ollama 或 Docker。核心防线包括：
 
 - 字节码架构守卫（`ArchitectureGuardTest`、`ApiArchitectureGuardTest`）：验证 `com.delivery.harness.policy` 永不依赖 `extraction` 或 `llm`，`evidence` 不泄漏评测标签，Controller 边界清晰。
 - `OfflineAblationSmokeTest`：使用独立评分器（`IndependentEvalScorer`）在冻结的手工 `dev`/`holdout` IM 语料上评测 ~20 行确定性 `RegexSignalBaseline`，并输出带 `PIPELINE_SMOKE_ONLY` 标记的离线冒烟报告。
@@ -195,7 +195,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b \
 ./mvnw -pl harness-core test -Dgroups=live-llm -Dtest=LiveLlmAblationReportTest
 ```
 
-评测报告会输出至 `harness-core/target/ablation-report-live.md`，并附带 [ADR-0005](docs/adr/0005-minimum-probabilistic-surface-and-unidirectional-routing.md) 退出条款：如果实测 LLM 无法在 holdout F1 上跑赢正则基线且保持豁免类信号 0 误报，则继续保持 `harness.llm.extraction.enabled=false`。
+评测报告会输出至 `harness-core/target/ablation-live-report.md`，并附带 [ADR-0005](docs/adr/0005-minimum-probabilistic-surface-and-unidirectional-routing.md) 退出条款：如果实测 LLM 无法在 holdout F1 上跑赢正则基线且保持豁免类信号 0 误报，则继续保持 `harness.llm.extraction.enabled=false`。
 
 ## 架构决策记录（ADR）
 

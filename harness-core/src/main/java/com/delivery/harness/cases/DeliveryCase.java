@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Top-level case aggregate owning the single case state machine, optimistic
  * concurrency version, immutable latest snapshot, append-only runs, append-only
- * human decisions, and optional external execution receipt.
+ * human decisions, approved payout intent, and optional external execution receipt.
  */
 public record DeliveryCase(
         String caseId,
@@ -26,6 +26,8 @@ public record DeliveryCase(
         List<AssessmentRun> runs,
         List<HumanDecision> decisions,
         BigDecimal pendingOverrideAmount,
+        BigDecimal approvedPayoutAmount,
+        String approvedPayoutMethod,
         String executionReceiptId,
         CustomerDraft latestCustomerDraft) {
 

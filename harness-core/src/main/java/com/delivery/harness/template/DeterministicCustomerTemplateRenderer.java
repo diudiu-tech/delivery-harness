@@ -18,7 +18,8 @@ import java.util.Objects;
  *       when an external execution receipt has been recorded</li>
  *   <li>non-actionable statuses ({@code NEEDS_EVIDENCE},
  *       {@code EXCEEDS_CAP_ESCALATE}, {@code NO_APPLICABLE_POLICY},
- *       {@code OUT_OF_SCOPE}) never display currency amounts</li>
+ *       {@code OUT_OF_SCOPE}) never display currency amounts prior to human
+ *       approval and external execution</li>
  *   <li>forbidden promise phrases cannot appear in any output</li>
  * </ul>
  */
@@ -34,17 +35,24 @@ public class DeterministicCustomerTemplateRenderer {
         Objects.requireNonNull(adjudication, "adjudication must not be null");
         AdjudicationStatus status = adjudication.status();
 
+        if (hasExecutionReceipt && externalReceiptId != null && !externalReceiptId.isBlank()) {
+            BigDecimal amount = adjudication.actionableAmount() != null
+                    ? adjudication.actionableAmount()
+                    : adjudication.calculatedAmount();
+            if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
+                return renderExecuted(
+                        amount,
+                        adjudication.suggestedMethod(),
+                        adjudication.matchedRuleId(),
+                        externalReceiptId);
+            }
+        }
+
         if (status == AdjudicationStatus.ELIGIBLE) {
             BigDecimal amount = adjudication.actionableAmount();
             String amountText = amount == null ? "" : amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
-            String method = adjudication.suggestedMethod() == null ? "按规则补偿" : adjudication.suggestedMethod();
-            String ruleId = adjudication.matchedRuleId() == null ? "现行政策" : adjudication.matchedRuleId();
-
-            if (hasExecutionReceipt && externalReceiptId != null && !externalReceiptId.isBlank()) {
-                String msg = "非常抱歉本次配送给您带来不便。已按平台规则（" + ruleId + "）已完成赔付处理："
-                        + method + " " + amountText + " 元（外部回执号：" + externalReceiptId + "），请注意查收。";
-                return new CustomerDraft("TPL-ELIGIBLE-EXECUTED", true, false, msg, DISCLAIMER);
-            }
+            String method = normalizeOrDefault(adjudication.suggestedMethod(), "按规则补偿");
+            String ruleId = normalizeOrDefault(adjudication.matchedRuleId(), "现行政策");
 
             String msg = "非常抱歉本次配送给您带来不便。根据平台规则（" + ruleId + "），当前建议方案为："
                     + method + " " + amountText + " 元。该方案尚待人工审核确认，确认后将按流程为您办理。";
@@ -56,7 +64,7 @@ public class DeterministicCustomerTemplateRenderer {
                     "TPL-INELIGIBLE",
                     false,
                     false,
-                    "您好，经核对订单时间轴，本单实际送达未超过承诺时间，暂不符合超时赔付条件。如对配送体验有其他疑问，欢迎随时告知，我们将安排人工进一步跟进。",
+                    "您好，经核对订单记录与平台规则，本单实际履约情况未触发赔付条件（如实际送达未超过承诺时间）。如对配送体验有其他疑问，欢迎随时告知，我们将安排人工进一步跟进。",
                     DISCLAIMER);
             case NEEDS_EVIDENCE -> {
                 String missing = adjudication.missingEvidence().isEmpty()
@@ -90,5 +98,32 @@ public class DeterministicCustomerTemplateRenderer {
                     DISCLAIMER);
             case ELIGIBLE -> throw new IllegalStateException("Unreachable");
         };
+    }
+
+    /**
+     * Renders the post-execution customer notification using the actual approved
+     * payout amount and method (covering standard rule payouts, supervisor
+     * over-cap approvals, and human overrides) once an external receipt exists.
+     */
+    public CustomerDraft renderExecuted(
+            BigDecimal executedAmount,
+            String executedMethod,
+            String basisReference,
+            String externalReceiptId) {
+        Objects.requireNonNull(executedAmount, "executedAmount must not be null");
+        if (externalReceiptId == null || externalReceiptId.isBlank()) {
+            throw new IllegalArgumentException("externalReceiptId is required to render executed draft");
+        }
+        String amountText = executedAmount.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        String method = normalizeOrDefault(executedMethod, "按审批方案补偿");
+        String basis = normalizeOrDefault(basisReference, "人工复核审批");
+
+        String msg = "非常抱歉本次配送给您带来不便。按平台规则与复核结论（" + basis + "）已完成赔付处理："
+                + method + " " + amountText + " 元（外部回执号：" + externalReceiptId.trim() + "），请注意查收。";
+        return new CustomerDraft("TPL-EXECUTED-WITH-RECEIPT", true, false, msg, DISCLAIMER);
+    }
+
+    private static String normalizeOrDefault(String value, String fallback) {
+        return (value == null || value.isBlank()) ? fallback : value.trim();
     }
 }

@@ -137,6 +137,13 @@ public final class PolicyBundleValidator {
                 .filter(r -> r.complaintType() != null)
                 .collect(Collectors.groupingBy(PolicyBundle.CompensationRule::complaintType));
 
+        for (Map.Entry<ComplaintType, List<PolicyBundle.CompensationRule>> entry : byType.entrySet()) {
+            if (entry.getKey() != ComplaintType.OVERTIME && entry.getValue().size() > 1) {
+                errors.add("Non-OVERTIME complaintType " + entry.getKey()
+                        + " must not declare multiple undistinguished rules");
+            }
+        }
+
         List<PolicyBundle.CompensationRule> overtimeRules = byType.get(ComplaintType.OVERTIME);
         if (overtimeRules != null && !overtimeRules.isEmpty()) {
             validateContiguousOvertimeIntervals(overtimeRules, errors);

@@ -11,6 +11,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -138,7 +139,7 @@ class CaseApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("APPROVED_PENDING_EXECUTION"));
 
-        // Record receipt -> CLOSED + executed draft.
+        // Record receipt -> CLOSED + executed draft with actual 64.00 approved amount.
         mockMvc.perform(post("/api/cases/{caseId}/decisions", caseId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"run_id\":\"" + run2Id + "\",\"expected_case_version\":3,"
@@ -147,6 +148,9 @@ class CaseApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("CLOSED"))
                 .andExpect(jsonPath("$.data.executionReceiptId").value("PAY-2026-888"))
+                .andExpect(jsonPath("$.data.latestCustomerDraft.executionCompleted").value(true))
+                .andExpect(jsonPath("$.data.latestCustomerDraft.message", containsString("已完成赔付处理")))
+                .andExpect(jsonPath("$.data.latestCustomerDraft.message", containsString("64.00 元")))
                 .andExpect(jsonPath("$.data.decisions[0].operatorIdentityMode")
                         .value("unauthenticated_operator_id"));
 

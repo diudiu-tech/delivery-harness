@@ -41,7 +41,7 @@ validated fail-fast at startup by `PolicyBundleLoader` and
 - **No scattered config properties.** Remove
   `harness.guardrail.max-compensation-amount`,
   `HARNESS_MAX_COMPENSATION_AMOUNT`, and
-  `harness.compensation.approval-threshold`; both `GuardrailChecker` and
+  `harness.compensation.approval-threshold`; both `CaseApplicationService` and
   `SingleSourcePolicyEngine` read `PolicyBundle.limits`.
 - **Startup fail-fast validation.** For every `OVERTIME` rule set, intervals
   must start at `0`, have no overlaps or gaps, and end with an unbounded top
@@ -89,7 +89,8 @@ validated fail-fast at startup by `PolicyBundleLoader` and
   invalid limits, and incomplete routing matrices, as well as all six
   `AdjudicationStatus` outcomes, effective-window boundaries, dynamic staleness
   checks, and auto-rendered descriptions.
-- `CompensationSuggestionApiTest` verifies end-to-end `NEEDS_EVIDENCE` (missing
-  `damage_level`), `EXCEEDS_CAP_ESCALATE` (`64.00 > 50.00` returning no
-  actionable `suggested_amount`), `INELIGIBLE` (`TEST005`), and
+- `CaseApiTest` verifies end-to-end `NEEDS_EVIDENCE` (missing
+  `DAMAGE_LEVEL` or timestamps), `EXCEEDS_CAP_ESCALATE` (`64.00 > 50.00`
+  returning no actionable amount until supervisor `APPROVE` with
+  `exception_reason`), `OUT_OF_SCOPE` (`ORD-INTRANSIT-01`), and
   `NO_APPLICABLE_POLICY` (`MISSING_ITEM`).

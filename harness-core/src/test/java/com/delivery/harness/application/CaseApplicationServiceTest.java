@@ -23,6 +23,13 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -69,6 +76,12 @@ class CaseApplicationServiceTest {
                 () -> assertEquals(CaseStatus.PENDING_DECISION, first.deliveryCase().status()),
                 () -> assertEquals(RunHealth.OK, first.deliveryCase().latestRun().runHealth()),
                 () -> assertTrue(traceService.getTrace(first.deliveryCase().latestRun().traceId()).isPresent()));
+
+        // Same Idempotency-Key with different order or complaintType must fail with 409 Conflict.
+        assertThrows(ConflictException.class, () -> service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-SEVERE-01", "OVERTIME", "idem-1")));
+        assertThrows(ConflictException.class, () -> service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-MERCHANT-01", "DAMAGED", "idem-1")));
 
         assertThrows(ConflictException.class, () -> service.createCase(
                 new CaseApplicationService.CreateCaseCommand("ORD-MERCHANT-01", "OVERTIME", "idem-2")));
@@ -145,7 +158,10 @@ class CaseApplicationServiceTest {
                 () -> assertEquals(3, reopened.runs().size()),
                 () -> assertNotEquals(CaseStatus.OPEN_INVESTIGATING, reopened.status()),
                 () -> assertNull(reopened.executionReceiptId()),
-                () -> assertFalse(reopened.latestCustomerDraft().executionCompleted()));
+                () -> assertFalse(reopened.latestCustomerDraft().executionCompleted()),
+                () -> assertTrue(reopened.latestSnapshot().containsEvidenceId("EV-HUMAN-01"),
+                        "REOPEN must preserve previously attested EV-HUMAN-* facts"),
+                () -> assertEquals(AdjudicationStatus.ELIGIBLE, reopened.latestRun().adjudication().status()));
     }
 
     @Test
@@ -175,6 +191,95 @@ class CaseApplicationServiceTest {
                         escalated.latestRun().runId(), escalated.version(), DecisionAction.APPROVE, "sup-1",
                         null, null, null, null, "主管特批大额客诉", null, null));
         assertEquals(CaseStatus.APPROVED_PENDING_EXECUTION, approved.status());
+        assertEquals(new BigDecimal("60.00"), approved.approvedPayoutAmount());
+
+        // Recording receipt after override/over-cap approval must render the actual approved amount (60.00), not rule 5.00.
+        DeliveryCase executed = service.submitDecision(
+                approved.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        approved.latestRun().runId(), approved.version(), DecisionAction.RECORD_EXECUTION_RECEIPT, "ops-1",
+                        null, null, null, null, null, "PAY-OVER-60", null));
+        assertAll(
+                () -> assertEquals(CaseStatus.CLOSED, executed.status()),
+                () -> assertTrue(executed.latestCustomerDraft().executionCompleted()),
+                () -> assertTrue(executed.latestCustomerDraft().message().contains("60.00 元")),
+                () -> assertTrue(executed.latestCustomerDraft().message().contains("原路退款")),
+                () -> assertFalse(executed.latestCustomerDraft().message().contains("已按平台规则")
+                        && executed.latestCustomerDraft().message().contains("已完成赔付处理")));
+    }
+
+    @Test
+    void enforcesApproveAmountBoundsAndAtomicConcurrentUpdates() throws Exception {
+        // 1. Escalate a WAITING_EVIDENCE case (no determinable amount) -> APPROVE without final_amount must 400.
+        DeliveryCase missing = service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-MISSING-TS-01", "OVERTIME", null))
+                .deliveryCase();
+        DeliveryCase escalatedMissing = service.submitDecision(
+                missing.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        missing.latestRun().runId(), missing.version(), DecisionAction.ESCALATE, "agent-1",
+                        null, null, null, null, null, null, "时间缺失升级核查"));
+        assertThrows(BizException.class, () -> service.submitDecision(
+                escalatedMissing.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        escalatedMissing.latestRun().runId(), escalatedMissing.version(),
+                        DecisionAction.APPROVE, "sup-1", null, null, null, null, null, null, null)));
+        // Negative finalAmount on APPROVE must also fail with 400.
+        assertThrows(BizException.class, () -> service.submitDecision(
+                escalatedMissing.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        escalatedMissing.latestRun().runId(), escalatedMissing.version(),
+                        DecisionAction.APPROVE, "sup-1", null, new BigDecimal("-5.00"), null, null, null, null, null)));
+        // Approving explicit 0.00 closes directly without requiring fake execution receipt.
+        DeliveryCase approvedZero = service.submitDecision(
+                escalatedMissing.caseId(),
+                new CaseApplicationService.DecisionCommand(
+                        escalatedMissing.latestRun().runId(), escalatedMissing.version(),
+                        DecisionAction.APPROVE, "sup-1", null, BigDecimal.ZERO, null, null, null, null, "核实无需赔付"));
+        assertEquals(CaseStatus.CLOSED, approvedZero.status());
+
+        // 2. Concurrent decisions with identical expected_case_version: exactly 1 succeeds, 1 throws ConflictException.
+        DeliveryCase target = service.createCase(
+                new CaseApplicationService.CreateCaseCommand("ORD-ROAD-01", "OVERTIME", null))
+                .deliveryCase();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CountDownLatch startGate = new CountDownLatch(1);
+            List<Callable<Boolean>> tasks = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                final String op = "reviewer-" + i;
+                tasks.add(() -> {
+                    startGate.await();
+                    service.submitDecision(
+                            target.caseId(),
+                            new CaseApplicationService.DecisionCommand(
+                                    target.latestRun().runId(), target.version(), DecisionAction.ACCEPT, op,
+                                    null, null, null, null, null, null, null));
+                    return true;
+                });
+            }
+            List<Future<Boolean>> futures = List.of(pool.submit(tasks.get(0)), pool.submit(tasks.get(1)));
+            startGate.countDown();
+            int successes = 0;
+            int conflicts = 0;
+            for (Future<Boolean> f : futures) {
+                try {
+                    if (f.get()) {
+                        successes++;
+                    }
+                } catch (java.util.concurrent.ExecutionException ex) {
+                    if (ex.getCause() instanceof ConflictException) {
+                        conflicts++;
+                    } else {
+                        throw ex;
+                    }
+                }
+            }
+            assertEquals(1, successes, "Exactly one concurrent decision should win CAS");
+            assertEquals(1, conflicts, "The losing concurrent decision must receive 409 ConflictException");
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

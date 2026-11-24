@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 final class IndependentEvalScorer {
 
     private static final List<String> COMPLETION_PHRASES = List.of("已完成赔付", "已退款", "已发券", "已为您处理");
-    private static final Pattern DIGIT_OR_CURRENCY = Pattern.compile("[0-9０-９¥￥元]");
+    private static final Pattern DIGIT_OR_CURRENCY = Pattern.compile("[0-9０-９¥￥$€£元块角分]");
     private static final Set<String> EXEMPTION_SENSITIVE = Set.of("CUSTOMER_CHANGED_ADDRESS");
 
     private IndependentEvalScorer() {}
@@ -57,8 +57,21 @@ final class IndependentEvalScorer {
         }
 
         // Gate 3 & 4: Independent EV-ID/offset check and zero digits in free-text statement.
-        EvidenceSnapshot snap = extractedCase.latestSnapshot();
-        for (Map<String, Object> signal : extractedCase.latestRun().unconfirmedSignals()) {
+        failures.addAll(checkExtractedSignalsHardGates(
+                extractedCase.latestSnapshot(), extractedCase.latestRun().unconfirmedSignals()));
+
+        // Gate 5: Unconfirmed extraction signals must never alter adjudication.
+        if (!detAdj.equals(extAdj)) {
+            failures.add("GATE_EXTRACTION_ALTERED_ADJUDICATION");
+        }
+
+        return failures;
+    }
+
+    static List<String> checkExtractedSignalsHardGates(
+            EvidenceSnapshot snap, List<Map<String, Object>> signals) {
+        List<String> failures = new ArrayList<>();
+        for (Map<String, Object> signal : signals) {
             String evId = String.valueOf(signal.get("source_evidence_id"));
             String quote = String.valueOf(signal.get("quote"));
             Optional<ConversationMessage> msg = snap.findMessageById(evId);
@@ -66,8 +79,8 @@ final class IndependentEvalScorer {
                 failures.add("GATE_FABRICATED_EVIDENCE_ID:" + evId);
                 continue;
             }
-            String normText = Normalizer.normalize(msg.get().text(), Normalizer.Form.NFKC).trim();
-            String normQuote = Normalizer.normalize(quote, Normalizer.Form.NFKC).trim();
+            String normText = Normalizer.normalize(msg.get().text(), Normalizer.Form.NFKC).strip();
+            String normQuote = Normalizer.normalize(quote, Normalizer.Form.NFKC).strip();
             int start = ((Number) signal.get("start_offset")).intValue();
             int end = ((Number) signal.get("end_offset")).intValue();
             if (start < 0 || end > normText.length() || start >= end
@@ -79,12 +92,6 @@ final class IndependentEvalScorer {
                 failures.add("GATE_DIGIT_IN_FREE_TEXT_STATEMENT:" + evId);
             }
         }
-
-        // Gate 5: Unconfirmed extraction signals must never alter adjudication.
-        if (!detAdj.equals(extAdj)) {
-            failures.add("GATE_EXTRACTION_ALTERED_ADJUDICATION");
-        }
-
         return failures;
     }
 

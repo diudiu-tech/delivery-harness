@@ -175,7 +175,7 @@ Run the full offline test suite, architecture boundary guards, XSS/CSP checks, f
 ./mvnw clean verify
 ```
 
-The offline suite contains **76 tests** (`harness-common`: 9, `harness-core`: 55, `harness-api`: 12) and requires no Ollama or Docker daemon. Key guarantees enforced in tests:
+The offline suite contains **78 tests** (`harness-common`: 9, `harness-core`: 57, `harness-api`: 12) and requires no Ollama or Docker daemon. Key guarantees enforced in tests:
 
 - Bytecode architecture guards (`ArchitectureGuardTest`, `ApiArchitectureGuardTest`) verify `com.delivery.harness.policy` never references `extraction` or `llm`, `evidence` never leaks test labels, and controllers stay clean.
 - `OfflineAblationSmokeTest` evaluates the deterministic ~20-line `RegexSignalBaseline` against the frozen hand-crafted `dev`/`holdout` IM corpus via an independent scorer (`IndependentEvalScorer`) and generates a pipeline-smoke report explicitly tagged `PIPELINE_SMOKE_ONLY`.
@@ -195,7 +195,7 @@ HARNESS_LLM_MODEL=qwen2.5:7b \
 ./mvnw -pl harness-core test -Dgroups=live-llm -Dtest=LiveLlmAblationReportTest
 ```
 
-The Markdown report is written to `harness-core/target/ablation-report-live.md` and includes the [ADR-0005](docs/adr/0005-minimum-probabilistic-surface-and-unidirectional-routing.md) exit criterion: if an LLM does not beat the regex baseline on holdout F1 with zero false-positive exemption signals, leave `harness.llm.extraction.enabled=false`.
+The Markdown report is written to `harness-core/target/ablation-live-report.md` and includes the [ADR-0005](docs/adr/0005-minimum-probabilistic-surface-and-unidirectional-routing.md) exit criterion: if an LLM does not beat the regex baseline on holdout F1 with zero false-positive exemption signals, leave `harness.llm.extraction.enabled=false`.
 
 ## Architecture Decision Records
 

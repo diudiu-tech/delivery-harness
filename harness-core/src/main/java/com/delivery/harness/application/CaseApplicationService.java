@@ -6,6 +6,7 @@ import com.delivery.harness.cases.CaseStore;
 import com.delivery.harness.cases.DecisionAction;
 import com.delivery.harness.cases.DeliveryCase;
 import com.delivery.harness.cases.HumanDecision;
+import com.delivery.harness.cases.InMemoryCaseStore;
 import com.delivery.harness.cases.RunHealth;
 import com.delivery.harness.common.evidence.EvidenceType;
 import com.delivery.harness.common.evidence.EvidenceValue;
@@ -35,6 +36,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -96,25 +98,27 @@ public class CaseApplicationService {
     }
 
     public CreateCaseResult createCase(CreateCaseCommand command) {
+        String orderId = requireNonBlank(command.orderId(), "order_id is required");
+        ComplaintType complaintType = ComplaintType.parse(command.complaintType())
+                .orElseThrow(() -> new BizException(400, "Unsupported complaint_type: " + command.complaintType()));
         String idempotencyKey = normalizeBlank(command.idempotencyKey());
+
         if (idempotencyKey != null) {
             Optional<DeliveryCase> existing = caseStore.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
+                InMemoryCaseStore.validateIdempotencyPayloadMatch(
+                        idempotencyKey, existing.get(), orderId, complaintType);
                 return new CreateCaseResult(existing.get(), true);
             }
         }
 
-        ComplaintType complaintType = ComplaintType.parse(command.complaintType())
-                .orElseThrow(() -> new BizException(400, "Unsupported complaint_type: " + command.complaintType()));
-
-        Optional<DeliveryCase> openDuplicate = caseStore.findOpenByOrderAndComplaint(
-                command.orderId(), complaintType);
+        Optional<DeliveryCase> openDuplicate = caseStore.findOpenByOrderAndComplaint(orderId, complaintType);
         if (openDuplicate.isPresent()) {
-            throw new ConflictException("An open case already exists for order " + command.orderId()
+            throw new ConflictException("An open case already exists for order " + orderId
                     + " and complaint " + complaintType.name() + ": " + openDuplicate.get().caseId());
         }
 
-        EvidenceSnapshot snapshot = evidenceSource.collect(command.orderId())
+        EvidenceSnapshot snapshot = evidenceSource.collect(orderId)
                 .orElseThrow(() -> {
                     metricsService.incrementCounter("case_create_not_found");
                     return new ResourceNotFoundException("Order not found");
@@ -125,9 +129,9 @@ public class CaseApplicationService {
         AssessmentRun run = executeRun(caseId, 1, complaintType, snapshot);
         CaseStatus initialStatus = initialStatusFor(run);
 
-        DeliveryCase created = new DeliveryCase(
+        DeliveryCase candidate = new DeliveryCase(
                 caseId,
-                command.orderId(),
+                orderId,
                 complaintType,
                 initialStatus,
                 1,
@@ -139,11 +143,15 @@ public class CaseApplicationService {
                 List.of(),
                 null,
                 null,
+                null,
+                null,
                 run.customerDraft());
 
-        caseStore.save(created);
-        metricsService.incrementCounter("case_created");
-        return new CreateCaseResult(created, false);
+        CaseStore.CreateStoreOutcome outcome = caseStore.createAtomically(candidate);
+        if (!outcome.idempotentReplay()) {
+            metricsService.incrementCounter("case_created");
+        }
+        return new CreateCaseResult(outcome.deliveryCase(), outcome.idempotentReplay());
     }
 
     public List<DeliveryCase> listCases(int limit) {
@@ -200,10 +208,12 @@ public class CaseApplicationService {
                 List.copyOf(updatedRuns),
                 current.decisions(),
                 null,
+                null,
+                null,
                 current.executionReceiptId(),
                 newRun.customerDraft());
 
-        caseStore.save(updated);
+        caseStore.saveIfVersionMatches(updated, command.expectedCaseVersion());
         metricsService.incrementCounter("case_attested");
         return updated;
     }
@@ -227,6 +237,8 @@ public class CaseApplicationService {
 
         CaseStatus nextStatus = current.status();
         BigDecimal nextPendingOverride = current.pendingOverrideAmount();
+        BigDecimal nextApprovedAmount = current.approvedPayoutAmount();
+        String nextApprovedMethod = current.approvedPayoutMethod();
         String nextReceiptId = current.executionReceiptId();
         CustomerDraft nextDraft = current.latestCustomerDraft();
         EvidenceSnapshot nextSnapshot = current.latestSnapshot();
@@ -236,6 +248,8 @@ public class CaseApplicationService {
             case REQUEST_EVIDENCE -> {
                 requireStatus(current, CaseStatus.PENDING_DECISION, CaseStatus.ESCALATED);
                 nextStatus = CaseStatus.WAITING_EVIDENCE;
+                nextApprovedAmount = null;
+                nextApprovedMethod = null;
             }
             case ACCEPT -> {
                 requireStatus(current, CaseStatus.PENDING_DECISION);
@@ -243,28 +257,48 @@ public class CaseApplicationService {
                 boolean needsPayout = adj.status() == AdjudicationStatus.ELIGIBLE
                         && adj.actionableAmount() != null
                         && adj.actionableAmount().compareTo(ZERO) > 0;
-                nextStatus = needsPayout ? CaseStatus.APPROVED_PENDING_EXECUTION : CaseStatus.CLOSED;
                 nextPendingOverride = null;
+                if (needsPayout) {
+                    nextStatus = CaseStatus.APPROVED_PENDING_EXECUTION;
+                    nextApprovedAmount = adj.actionableAmount().setScale(2, RoundingMode.HALF_UP);
+                    nextApprovedMethod = normalizeOrDefault(adj.suggestedMethod(), "按规则补偿");
+                } else {
+                    nextStatus = CaseStatus.CLOSED;
+                    nextApprovedAmount = null;
+                    nextApprovedMethod = null;
+                }
             }
             case OVERRIDE -> {
                 requireStatus(current, CaseStatus.PENDING_DECISION);
                 requireNonBlank(command.overrideReasonCode(), "overrideReasonCode is required for OVERRIDE");
-                BigDecimal overrideAmount = command.finalAmount();
-                if (overrideAmount != null && overrideAmount.compareTo(ZERO) < 0) {
+                BigDecimal overrideAmount = command.finalAmount() != null
+                        ? command.finalAmount()
+                        : latestRun.adjudication().actionableAmount();
+                if (overrideAmount == null) {
+                    throw new BizException(400, "finalAmount is required for OVERRIDE when no actionableAmount exists");
+                }
+                if (overrideAmount.compareTo(ZERO) < 0) {
                     throw new BizException(400, "finalAmount must be >= 0");
                 }
-                boolean exceedsApprovalOrCap = overrideAmount != null
-                        && (overrideAmount.compareTo(limits.approvalThreshold()) >= 0
-                        || overrideAmount.compareTo(limits.escalationCap()) > 0);
+                BigDecimal scaledOverride = overrideAmount.setScale(2, RoundingMode.HALF_UP);
+                String overrideMethod = resolveMethodToApprove(current, latestRun, command.finalMethod());
+                boolean exceedsApprovalOrCap = scaledOverride.compareTo(limits.approvalThreshold()) >= 0
+                        || scaledOverride.compareTo(limits.escalationCap()) > 0;
                 if (exceedsApprovalOrCap) {
                     nextStatus = CaseStatus.ESCALATED;
-                    nextPendingOverride = overrideAmount;
-                } else if (overrideAmount != null && overrideAmount.compareTo(ZERO) > 0) {
+                    nextPendingOverride = scaledOverride;
+                    nextApprovedAmount = null;
+                    nextApprovedMethod = overrideMethod;
+                } else if (scaledOverride.compareTo(ZERO) > 0) {
                     nextStatus = CaseStatus.APPROVED_PENDING_EXECUTION;
-                    nextPendingOverride = overrideAmount;
+                    nextPendingOverride = null;
+                    nextApprovedAmount = scaledOverride;
+                    nextApprovedMethod = overrideMethod;
                 } else {
                     nextStatus = CaseStatus.CLOSED;
                     nextPendingOverride = null;
+                    nextApprovedAmount = null;
+                    nextApprovedMethod = null;
                 }
             }
             case ESCALATE -> {
@@ -274,40 +308,78 @@ public class CaseApplicationService {
             case RETURN_TO_REVIEW -> {
                 requireStatus(current, CaseStatus.ESCALATED);
                 nextStatus = CaseStatus.PENDING_DECISION;
+                nextPendingOverride = null;
+                nextApprovedAmount = null;
+                nextApprovedMethod = null;
             }
             case APPROVE -> {
                 requireStatus(current, CaseStatus.ESCALATED);
+                if (command.finalAmount() != null && command.finalAmount().compareTo(ZERO) < 0) {
+                    throw new BizException(400, "finalAmount must be >= 0");
+                }
                 BigDecimal effectiveAmount = resolveAmountToApprove(current, latestRun, command.finalAmount());
-                if (effectiveAmount != null && effectiveAmount.compareTo(limits.escalationCap()) > 0) {
+                if (effectiveAmount == null) {
+                    throw new BizException(400,
+                            "Cannot APPROVE without a determinable payout amount; specify final_amount or request evidence");
+                }
+                if (effectiveAmount.compareTo(limits.escalationCap()) > 0) {
                     requireNonBlank(command.exceptionReason(),
                             "Approving an amount above escalationCap ("
                                     + limits.escalationCap().toPlainString() + ") requires exceptionReason");
                 }
-                nextStatus = CaseStatus.APPROVED_PENDING_EXECUTION;
+                nextPendingOverride = null;
+                if (effectiveAmount.compareTo(ZERO) == 0) {
+                    nextStatus = CaseStatus.CLOSED;
+                    nextApprovedAmount = null;
+                    nextApprovedMethod = null;
+                } else {
+                    nextStatus = CaseStatus.APPROVED_PENDING_EXECUTION;
+                    nextApprovedAmount = effectiveAmount.setScale(2, RoundingMode.HALF_UP);
+                    nextApprovedMethod = resolveMethodToApprove(current, latestRun, command.finalMethod());
+                }
             }
             case REJECT_CLOSE -> {
                 requireStatus(current, CaseStatus.ESCALATED);
                 nextStatus = CaseStatus.CLOSED;
                 nextPendingOverride = null;
+                nextApprovedAmount = null;
+                nextApprovedMethod = null;
             }
             case CLOSE -> {
                 requireStatus(current, CaseStatus.WAITING_EVIDENCE, CaseStatus.PENDING_DECISION);
                 nextStatus = CaseStatus.CLOSED;
                 nextPendingOverride = null;
+                nextApprovedAmount = null;
+                nextApprovedMethod = null;
             }
             case RECORD_EXECUTION_RECEIPT -> {
                 requireStatus(current, CaseStatus.APPROVED_PENDING_EXECUTION);
                 String receiptId = requireNonBlank(command.externalReceiptId(),
                         "externalReceiptId is required for RECORD_EXECUTION_RECEIPT");
+                BigDecimal executedAmount = current.approvedPayoutAmount() != null
+                        ? current.approvedPayoutAmount()
+                        : resolveAmountToApprove(current, latestRun, null);
+                if (executedAmount == null || executedAmount.compareTo(ZERO) <= 0) {
+                    throw new BizException(400, "No positive approved payout amount available for receipt execution");
+                }
+                String executedMethod = current.approvedPayoutMethod() != null
+                        ? current.approvedPayoutMethod()
+                        : resolveMethodToApprove(current, latestRun, command.finalMethod());
+                String basisRef = latestRun.adjudication().matchedRuleId() != null
+                        ? latestRun.adjudication().matchedRuleId()
+                        : "HUMAN-APPROVAL";
                 nextReceiptId = receiptId;
-                nextDraft = templateRenderer.render(latestRun.adjudication(), true, receiptId);
+                nextDraft = templateRenderer.renderExecuted(executedAmount, executedMethod, basisRef, receiptId);
                 nextStatus = CaseStatus.CLOSED;
             }
             case REOPEN -> {
                 requireStatus(current, CaseStatus.CLOSED);
                 nextReceiptId = null;
                 nextPendingOverride = null;
-                nextSnapshot = evidenceSource.collect(current.orderId()).orElse(current.latestSnapshot());
+                nextApprovedAmount = null;
+                nextApprovedMethod = null;
+                EvidenceSnapshot refreshed = evidenceSource.collect(current.orderId()).orElse(current.latestSnapshot());
+                nextSnapshot = preserveHumanAttestations(current.latestSnapshot(), refreshed, now);
                 AssessmentRun reopenedRun = executeRun(
                         caseId, nextRuns.size() + 1, current.complaintType(), nextSnapshot);
                 nextRuns.add(reopenedRun);
@@ -347,10 +419,12 @@ public class CaseApplicationService {
                 List.copyOf(nextRuns),
                 List.copyOf(updatedDecisions),
                 nextPendingOverride,
+                nextApprovedAmount,
+                nextApprovedMethod,
                 nextReceiptId,
                 nextDraft);
 
-        caseStore.save(updated);
+        caseStore.saveIfVersionMatches(updated, command.expectedCaseVersion());
         metricsService.incrementCounter("case_decision_" + action.name().toLowerCase());
         return updated;
     }
@@ -453,6 +527,22 @@ public class CaseApplicationService {
         return run;
     }
 
+    private static EvidenceSnapshot preserveHumanAttestations(
+            EvidenceSnapshot previous, EvidenceSnapshot refreshed, Instant now) {
+        if (previous == null || previous == refreshed) {
+            return refreshed;
+        }
+        EvidenceSnapshot result = refreshed;
+        for (EvidenceItem item : previous.items().values()) {
+            if (item.evidenceId().startsWith("EV-HUMAN-")
+                    && !result.containsEvidenceId(item.evidenceId())
+                    && item.value() instanceof EvidenceValue.Known<?> known) {
+                result = result.withHumanAttestation(item.evidenceId(), item.type(), known, now);
+            }
+        }
+        return result;
+    }
+
     @SuppressWarnings("unchecked")
     private static SingleSourcePolicyEngine.PolicyEvaluationInput buildPolicyInput(
             ComplaintType complaintType, EvidenceSnapshot snapshot) {
@@ -506,6 +596,18 @@ public class CaseApplicationService {
         return latestRun.adjudication().calculatedAmount();
     }
 
+    private static String resolveMethodToApprove(
+            DeliveryCase current, AssessmentRun latestRun, String commandMethod) {
+        String explicit = normalizeBlank(commandMethod);
+        if (explicit != null) {
+            return explicit;
+        }
+        if (current.approvedPayoutMethod() != null && !current.approvedPayoutMethod().isBlank()) {
+            return current.approvedPayoutMethod();
+        }
+        return normalizeOrDefault(latestRun.adjudication().suggestedMethod(), "人工审批补偿");
+    }
+
     private static void verifyCaseVersion(DeliveryCase current, Integer expectedVersion) {
         if (expectedVersion == null) {
             throw new BizException(400, "expectedCaseVersion is required");
@@ -553,6 +655,10 @@ public class CaseApplicationService {
 
     private static String normalizeBlank(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String normalizeOrDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 
     private static String ensureTraceId() {

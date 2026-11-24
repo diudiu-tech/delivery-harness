@@ -62,8 +62,9 @@ public class HttpLlmClient implements LlmClient {
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             conn.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
         }
-        conn.setConnectTimeout(30000);
-        conn.setReadTimeout(timeoutSeconds * 1000);
+        int effectiveTimeoutMs = Math.max(1000, timeoutSeconds * 1000);
+        conn.setConnectTimeout(Math.min(5000, effectiveTimeoutMs));
+        conn.setReadTimeout(effectiveTimeoutMs);
         conn.setDoOutput(true);
 
         try {

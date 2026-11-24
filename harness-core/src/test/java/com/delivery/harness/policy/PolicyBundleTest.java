@@ -100,6 +100,18 @@ class PolicyBundleTest {
         List<String> errors = PolicyBundleValidator.collectErrors(badRouting);
         assertTrue(errors.stream().anyMatch(e -> e.contains("approvalThreshold must be <= limits.escalationCap")));
         assertTrue(errors.stream().anyMatch(e -> e.contains("routingMatrix missing mapping")));
+
+        // Duplicate undistinguished non-OVERTIME rules must also be rejected.
+        List<PolicyBundle.CompensationRule> dupWrongOrder = List.of(
+                overtimeRule("OT-0", 0, null),
+                new PolicyBundle.CompensationRule("WO-1", "错单1", ComplaintType.WRONG_ORDER, 90,
+                        List.of(EvidenceType.ORDER_STATUS), null, null, PolicyBundle.AmountType.FIXED,
+                        new BigDecimal("5.00"), null, null, null, null, "优惠券", false),
+                new PolicyBundle.CompensationRule("WO-2", "错单2", ComplaintType.WRONG_ORDER, 80,
+                        List.of(EvidenceType.ORDER_STATUS), null, null, PolicyBundle.AmountType.FIXED,
+                        new BigDecimal("3.00"), null, null, null, null, "优惠券", false));
+        assertTrue(PolicyBundleValidator.collectErrors(copyWithRules(base, dupWrongOrder)).stream()
+                .anyMatch(e -> e.contains("Non-OVERTIME complaintType WRONG_ORDER")));
     }
 
     @Test

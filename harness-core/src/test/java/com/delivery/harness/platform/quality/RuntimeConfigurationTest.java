@@ -190,6 +190,28 @@ class RuntimeConfigurationTest {
     }
 
     @Test
+    void gateCountsMeasuredResultsBeyondTheFirstPage() {
+        Fixture f = new Fixture();
+        ReflectionTestUtils.setField(f.configs, "minMeasuredSamplesPerScenario", 150);
+        var insufficient = f.candidate(Map.of("scenarios", List.of("compensation_suggestion")));
+        assertGate(
+                f,
+                insufficient,
+                GateReports.of(f.store, insufficient).samples("compensation_suggestion", 149).store(),
+                422,
+                "RUNTIME_GATE_INSUFFICIENT_SAMPLES");
+        var enough = f.candidate(Map.of("scenarios", List.of("compensation_suggestion")));
+        f.publish(
+                enough,
+                GateReports.of(f.store, enough).samples("compensation_suggestion", 150).store());
+        assertEquals(
+                "PUBLISHED",
+                f.store.require("tenant", RuntimeConfigService.KIND, enough.id())
+                        .data()
+                        .get("state"));
+    }
+
+    @Test
     void datasetAuthorAndEvaluationInitiatorMustBeIndependentOfConfigAuthor() {
         Fixture f = new Fixture();
         var labelled = f.candidate(Map.of());
@@ -590,6 +612,26 @@ class RuntimeConfigurationTest {
                         true));
         // The seed was published before the supersession and keeps its frozen policy.
         assertEquals("PUBLISHED", configs.resolve("tenant", "runtime-default-v1").get("state"));
+        // ...but a new route would widen its reach, so it is not grandfathered.
+        var route =
+                assertThrows(
+                        PlatformException.class,
+                        () ->
+                                configs.createRoute(
+                                        "tenant",
+                                        "publisher",
+                                        Map.of(
+                                                "scenario",
+                                                "compensation_suggestion",
+                                                "primary_config_id",
+                                                "runtime-default-v1",
+                                                "fallback_config_id",
+                                                "runtime-default-v1",
+                                                "city_codes",
+                                                List.of("010"))));
+        assertEquals(409, route.status());
+        assertEquals("RUNTIME_REFERENCE_NOT_CURRENT", route.code());
+        assertEquals(0, store.summaryPage("tenant", RuntimeConfigService.ROUTE_KIND, "", 10).size());
     }
 
     private static PlatformStore.Entity publishedKnowledge(

@@ -2,12 +2,17 @@ package db.migration;
 
 import com.delivery.harness.common.util.JsonUtil;
 import com.delivery.harness.platform.quality.KnowledgeService;
+import com.delivery.harness.platform.quality.PolicyService;
+import com.delivery.harness.platform.quality.QualityData;
 import com.delivery.harness.platform.store.RecordSummaries;
 import com.fasterxml.jackson.core.type.TypeReference;
 
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -18,17 +23,33 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
- * Creates one version-chain head per knowledge document and leaves a single current publication.
- * Older duplicate publications become SUPERSEDED with an audit event; their frozen content stays.
+ * Creates one version-chain head per knowledge document and leaves a single current publication
+ * per chain. Older duplicate publications become SUPERSEDED with an audit event; their frozen
+ * content stays.
+ *
+ * <p>Legacy creation did not scope-check a reused {@code document_id}, so one id may hold versions
+ * of different scopes. Superseding across scopes would silently remove one scope's knowledge from
+ * search, so such documents are split: the scope of the highest published version (or of the
+ * highest version when none is published) keeps the original id, and every other scope moves to a
+ * deterministic derived id. Split versions keep their record ids, chunk ids and version numbers
+ * (citations stay valid), the rewrite is audited, and each split logs a warning.
  */
 public class V12__knowledge_document_heads extends BaseJavaMigration {
+    private static final Logger LOG = LoggerFactory.getLogger(V12__knowledge_document_heads.class);
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {};
     private static final String ACTOR = "MIGRATION_V12";
 
-    private record Version(String id, long number, boolean published, Map<String, Object> scope) {}
+    private record Version(
+            String id,
+            long number,
+            boolean published,
+            String scopeKey,
+            Map<String, Object> scope) {}
 
     @Override
     public void migrate(Context context) throws SQLException {
@@ -68,6 +89,7 @@ public class V12__knowledge_document_heads extends BaseJavaMigration {
                                             recordId,
                                             number,
                                             "PUBLISHED".equals(data.get("state")),
+                                            scopeKey(data),
                                             scope));
                 }
             }
@@ -75,28 +97,120 @@ public class V12__knowledge_document_heads extends BaseJavaMigration {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         for (Map.Entry<String, Map<String, List<Version>>> tenant : tenants.entrySet()) {
             for (Map.Entry<String, List<Version>> document : tenant.getValue().entrySet()) {
-                Version latest = null;
-                Version current = null;
-                for (Version version : document.getValue()) {
-                    if (latest == null || version.number() > latest.number()) latest = version;
-                    if (version.published()
-                            && (current == null || version.number() > current.number()))
-                        current = version;
-                }
-                for (Version version : document.getValue()) {
-                    if (version.published() && version != current) {
-                        supersede(connection, tenant.getKey(), version.id(), current.id(), now);
-                    }
-                }
-                Map<String, Object> head =
-                        KnowledgeService.documentHead(
-                                document.getKey(),
-                                latest.scope(),
-                                latest.number(),
-                                current == null ? null : current.id());
-                insertHead(connection, tenant.getKey(), document.getKey(), head, now);
+                migrateDocument(
+                        connection, tenant.getKey(), document.getKey(), document.getValue(), now);
             }
         }
+    }
+
+    private static void migrateDocument(
+            Connection connection,
+            String tenant,
+            String documentId,
+            List<Version> versions,
+            OffsetDateTime now)
+            throws SQLException {
+        Version anchor = newest(versions, true);
+        if (anchor == null) anchor = newest(versions, false);
+        Map<String, List<Version>> chains = new LinkedHashMap<>();
+        for (Version version : versions) {
+            chains.computeIfAbsent(version.scopeKey(), k -> new ArrayList<>()).add(version);
+        }
+        for (Map.Entry<String, List<Version>> chain : chains.entrySet()) {
+            String chainId = documentId;
+            if (!chain.getKey().equals(anchor.scopeKey())) {
+                chainId =
+                        UUID.nameUUIDFromBytes(
+                                        (tenant + "\n" + documentId + "\n" + chain.getKey())
+                                                .getBytes(StandardCharsets.UTF_8))
+                                .toString();
+                LOG.warn(
+                        "Knowledge document {} in tenant {} spans scopes; moving {} version(s) of"
+                                + " scope {} to document {}",
+                        documentId,
+                        tenant,
+                        chain.getValue().size(),
+                        chain.getKey(),
+                        chainId);
+                for (Version version : chain.getValue()) {
+                    split(connection, tenant, version.id(), documentId, chainId, now);
+                }
+            }
+            Version current = newest(chain.getValue(), true);
+            for (Version version : chain.getValue()) {
+                if (version.published() && version != current) {
+                    supersede(connection, tenant, version.id(), current.id(), now);
+                }
+            }
+            // The chain scope is uniform; prefer the live publication's own scope payload.
+            Version scopeSource = current == null ? newest(chain.getValue(), false) : current;
+            Map<String, Object> head =
+                    KnowledgeService.documentHead(
+                            chainId,
+                            scopeSource.scope(),
+                            newest(chain.getValue(), false).number(),
+                            current == null ? null : current.id());
+            insertHead(connection, tenant, chainId, head, now);
+        }
+    }
+
+    private static Version newest(List<Version> versions, boolean publishedOnly) {
+        Version result = null;
+        for (Version version : versions) {
+            if ((!publishedOnly || version.published())
+                    && (result == null || version.number() > result.number())) {
+                result = version;
+            }
+        }
+        return result;
+    }
+
+    /** Matches KnowledgeService scope equality: order-insensitive city and station sets. */
+    private static String scopeKey(Map<String, Object> data) {
+        return new TreeSet<>(QualityData.strings(data.get("city_codes")))
+                + "|"
+                + new TreeSet<>(QualityData.strings(data.get("station_ids")));
+    }
+
+    private static void split(
+            Connection connection,
+            String tenant,
+            String recordId,
+            String previousDocument,
+            String documentId,
+            OffsetDateTime now)
+            throws SQLException {
+        long version =
+                rewrite(
+                        connection,
+                        tenant,
+                        recordId,
+                        now,
+                        data -> {
+                            data.put("document_id", documentId);
+                            data.put(
+                                    "chunks",
+                                    PolicyService.ruleMaps(data.get("chunks")).stream()
+                                            .peek(chunk -> chunk.put("document_id", documentId))
+                                            .toList());
+                        });
+        audit(
+                connection,
+                tenant,
+                "KNOWLEDGE_DOCUMENT_SPLIT",
+                recordId,
+                Map.of(
+                        "kind",
+                        KnowledgeService.KIND,
+                        "before_version",
+                        version,
+                        "after_version",
+                        Math.addExact(version, 1L),
+                        "previous_document_id",
+                        previousDocument,
+                        "document_id",
+                        documentId),
+                now);
     }
 
     private static void supersede(
@@ -105,6 +219,43 @@ public class V12__knowledge_document_heads extends BaseJavaMigration {
             String recordId,
             String currentId,
             OffsetDateTime now)
+            throws SQLException {
+        long version =
+                rewrite(
+                        connection,
+                        tenant,
+                        recordId,
+                        now,
+                        data -> {
+                            data.put("state", "SUPERSEDED");
+                            data.put("superseded_by", ACTOR);
+                            data.put("superseded_at", now.toInstant().toString());
+                            data.put("superseded_by_version", currentId);
+                        });
+        audit(
+                connection,
+                tenant,
+                "KNOWLEDGE_SUPERSEDED",
+                recordId,
+                Map.of(
+                        "kind",
+                        KnowledgeService.KIND,
+                        "before_version",
+                        version,
+                        "after_version",
+                        Math.addExact(version, 1L),
+                        "superseded_by_version",
+                        currentId),
+                now);
+    }
+
+    /** Applies one payload change and bumps the record version; returns the prior version. */
+    private static long rewrite(
+            Connection connection,
+            String tenant,
+            String recordId,
+            OffsetDateTime now,
+            Consumer<Map<String, Object>> change)
             throws SQLException {
         Map<String, Object> data;
         long version;
@@ -121,10 +272,7 @@ public class V12__knowledge_document_heads extends BaseJavaMigration {
                 data = JsonUtil.fromJson(rows.getString("payload"), MAP);
             }
         }
-        data.put("state", "SUPERSEDED");
-        data.put("superseded_by", ACTOR);
-        data.put("superseded_at", now.toInstant().toString());
-        data.put("superseded_by_version", currentId);
+        change.accept(data);
         try (PreparedStatement update =
                 connection.prepareStatement(
                         "UPDATE platform_records SET record_version=?,updated_at=?,payload=?,"
@@ -135,27 +283,13 @@ public class V12__knowledge_document_heads extends BaseJavaMigration {
             update.setString(3, JsonUtil.toJson(data));
             update.setString(
                     4, JsonUtil.toJson(RecordSummaries.of(KnowledgeService.KIND, data)));
-            update.setString(5, "SUPERSEDED");
+            update.setString(5, data.get("state") == null ? "" : data.get("state").toString());
             update.setString(6, tenant);
             update.setString(7, KnowledgeService.KIND);
             update.setString(8, recordId);
             update.executeUpdate();
         }
-        audit(
-                connection,
-                tenant,
-                "KNOWLEDGE_SUPERSEDED",
-                recordId,
-                Map.of(
-                        "kind",
-                        KnowledgeService.KIND,
-                        "before_version",
-                        version,
-                        "after_version",
-                        Math.addExact(version, 1L),
-                        "superseded_by_version",
-                        currentId),
-                now);
+        return version;
     }
 
     private static void insertHead(

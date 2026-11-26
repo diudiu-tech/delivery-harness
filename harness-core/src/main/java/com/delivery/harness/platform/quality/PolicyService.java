@@ -414,11 +414,15 @@ public class PolicyService {
     public PlatformStore.Entity withdraw(
             String tenant, String id, String actor, long version, String reason) {
         PlatformStore.Entity entity = store.require(tenant, KIND, id);
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Withdrawal requires a reason");
+        }
         // Superseded versions can still be withdrawn to stop runtimes that pin them.
-        if (!Set.of("PUBLISHED", "SUPERSEDED").contains(entity.data().get("state"))
-                || reason == null
-                || reason.isBlank()) {
-            throw new IllegalArgumentException("Withdrawal requires published policy and reason");
+        if (!Set.of("PUBLISHED", "SUPERSEDED").contains(entity.data().get("state"))) {
+            throw new PlatformException(
+                    409,
+                    "POLICY_NOT_WITHDRAWABLE",
+                    "Only published or superseded policies can be withdrawn");
         }
         Map<String, Object> data = QualityData.copy(entity.data());
         data.put("state", "WITHDRAWN");

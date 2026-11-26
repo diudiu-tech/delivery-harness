@@ -1,7 +1,9 @@
 package com.delivery.harness.platform.quality;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.delivery.harness.knowledge.rule.RuleBaseService;
 import com.delivery.harness.platform.PlatformTestDatabase;
@@ -63,10 +65,43 @@ class KnowledgePublicationTest {
                         "tenant", draft.id(), "reviewer", reviewed.version(), "publish", "checked");
         assertEquals(
                 1, knowledge.search("tenant", Map.of("query", "uniquefact")).get("total_found"));
-        knowledge.transition(
-                "tenant", draft.id(), "reviewer", published.version(), "withdraw", "superseded");
+        var withdrawn =
+                knowledge.transition(
+                        "tenant",
+                        draft.id(),
+                        "reviewer",
+                        published.version(),
+                        "withdraw",
+                        "superseded");
         assertEquals(
                 0, knowledge.search("tenant", Map.of("query", "uniquefact")).get("total_found"));
+        var again =
+                assertThrows(
+                        PlatformException.class,
+                        () ->
+                                knowledge.transition(
+                                        "tenant",
+                                        draft.id(),
+                                        "reviewer",
+                                        withdrawn.version(),
+                                        "withdraw",
+                                        "twice"));
+        assertEquals(409, again.status());
+        assertEquals("KNOWLEDGE_NOT_WITHDRAWABLE", again.code());
+        var other = knowledge.create("tenant", "author", document(null));
+        assertEquals(
+                "KNOWLEDGE_NOT_WITHDRAWABLE",
+                assertThrows(
+                                PlatformException.class,
+                                () ->
+                                        knowledge.transition(
+                                                "tenant",
+                                                other.id(),
+                                                "reviewer",
+                                                other.version(),
+                                                "withdraw",
+                                                "draft"))
+                        .code());
     }
 
     @Test
@@ -211,6 +246,117 @@ class KnowledgePublicationTest {
                                         .data()
                                         .get("document_version"))
                         .longValue());
+    }
+
+    @Test
+    void migrationSplitsLegacyDocumentsWhoseVersionsSpanScopes() {
+        DataSource source = legacyDatabase();
+        var store = new PlatformStore(source);
+        legacyVersion(store, "city-a-v1", "shared-doc", 1, "PUBLISHED", "city-a");
+        legacyVersion(store, "city-b-v2", "shared-doc", 2, "PUBLISHED", "city-b");
+        legacyVersion(store, "city-b-v3", "shared-doc", 3, "PUBLISHED", "city-b");
+        PlatformTestDatabase.migrate(source);
+        var cityA = store.require("tenant", KnowledgeService.KIND, "city-a-v1").data();
+        var cityB = store.require("tenant", KnowledgeService.KIND, "city-b-v3").data();
+        // Each scope keeps its own live publication; only same-scope duplicates are superseded.
+        assertEquals("PUBLISHED", cityA.get("state"));
+        assertEquals("PUBLISHED", cityB.get("state"));
+        assertEquals(
+                "SUPERSEDED",
+                store.require("tenant", KnowledgeService.KIND, "city-b-v2").data().get("state"));
+        assertEquals("shared-doc", cityB.get("document_id"));
+        String splitId = cityA.get("document_id").toString();
+        assertNotEquals("shared-doc", splitId);
+        assertEquals(
+                splitId,
+                PolicyService.ruleMaps(cityA.get("chunks")).get(0).get("document_id"));
+        assertEquals(
+                "city-a-v1:0", PolicyService.ruleMaps(cityA.get("chunks")).get(0).get("chunk_id"));
+        var splitHead = store.require("tenant", KnowledgeService.DOCUMENT, splitId).data();
+        assertEquals(List.of("city-a"), splitHead.get("city_codes"));
+        assertEquals("city-a-v1", splitHead.get("current_version_id"));
+        assertEquals(
+                List.of("city-b"),
+                store.require("tenant", KnowledgeService.DOCUMENT, "shared-doc")
+                        .data()
+                        .get("city_codes"));
+        assertTrue(
+                store.audits("tenant").stream()
+                        .anyMatch(a -> "KNOWLEDGE_DOCUMENT_SPLIT".equals(a.get("action"))));
+        var knowledge =
+                new KnowledgeService(store, new PolicyService(store, new RuleBaseService()));
+        for (String city : List.of("city-a", "city-b")) {
+            assertEquals(
+                    1,
+                    knowledge.search(
+                                    "tenant", Map.of("query", "versionedfact", "city_code", city))
+                            .get("total_found"));
+        }
+        Map<String, Object> continuation = new LinkedHashMap<>(document(splitId));
+        continuation.put("city_codes", List.of("city-a"));
+        assertEquals(
+                2L,
+                ((Number)
+                                knowledge
+                                        .create("tenant", "author", continuation)
+                                        .data()
+                                        .get("document_version"))
+                        .longValue());
+    }
+
+    @Test
+    void migrationHeadScopeFollowsThePublishedVersionNotALaterDraft() {
+        DataSource source = legacyDatabase();
+        var store = new PlatformStore(source);
+        legacyVersion(store, "live-v1", "drafted-doc", 1, "PUBLISHED", "city-a");
+        legacyVersion(store, "draft-v2", "drafted-doc", 2, "DRAFT", "city-b");
+        PlatformTestDatabase.migrate(source);
+        var head = store.require("tenant", KnowledgeService.DOCUMENT, "drafted-doc").data();
+        assertEquals(List.of("city-a"), head.get("city_codes"));
+        assertEquals("live-v1", head.get("current_version_id"));
+        var draft = store.require("tenant", KnowledgeService.KIND, "draft-v2").data();
+        assertNotEquals("drafted-doc", draft.get("document_id"));
+        var knowledge =
+                new KnowledgeService(store, new PolicyService(store, new RuleBaseService()));
+        Map<String, Object> continuation = new LinkedHashMap<>(document("drafted-doc"));
+        continuation.put("city_codes", List.of("city-a"));
+        assertEquals(
+                "drafted-doc",
+                knowledge.create("tenant", "author", continuation).data().get("document_id"));
+    }
+
+    private static DataSource legacyDatabase() {
+        DataSource source =
+                PlatformTestDatabase.source(
+                        "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1");
+        Flyway.configure().dataSource(source).target("11").load().migrate();
+        return source;
+    }
+
+    private static void legacyVersion(
+            PlatformStore store,
+            String id,
+            String documentId,
+            int version,
+            String state,
+            String city) {
+        Map<String, Object> legacy = new LinkedHashMap<>(document(documentId));
+        legacy.put("state", state);
+        legacy.put("document_version", version);
+        legacy.put("city_codes", List.of(city));
+        legacy.put(
+                "chunks",
+                List.of(
+                        Map.of(
+                                "chunk_id",
+                                id + ":0",
+                                "document_id",
+                                documentId,
+                                "title_path",
+                                "legacy",
+                                "content",
+                                "versionedfact")));
+        store.create("tenant", KnowledgeService.KIND, id, legacy, "legacy-author", "T");
     }
 
     private static PlatformStore.Entity publish(

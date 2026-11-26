@@ -103,7 +103,8 @@ public class PolicyController extends QualityAccess {
         Map<String, Object> body = payload.toMap();
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_PUBLISHER", "ADMIN");
-        resource(actor, PolicyService.KIND, id);
+        // Like superseding, withdrawal retires a publication across its whole scope.
+        authorizeCreateScope(actor, resource(actor, PolicyService.KIND, id).data());
         return policies.withdraw(
                 actor.tenantId(),
                 id,

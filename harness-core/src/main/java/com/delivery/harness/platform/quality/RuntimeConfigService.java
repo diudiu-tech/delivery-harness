@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -88,19 +89,19 @@ public class RuntimeConfigService {
 
     public PlatformStore.Entity create(String tenant, String actor, Map<String, Object> request) {
         Map<String, Object> data = executable(tenant, request);
-        requireCurrentReferences(
-                tenant,
-                data.get("policy_version").toString(),
-                QualityData.strings(data.get("knowledge_versions")));
         data.put("created_by", actor);
         requireBoundedBundle(data);
-        return store.create(
-                tenant,
-                KIND,
-                UUID.randomUUID().toString(),
-                data,
-                actor,
-                "RUNTIME_CONFIG_CANDIDATE_CREATED");
+        return store.transact(
+                tx -> {
+                    requireCurrentReferences(tx, tenant, data);
+                    return tx.create(
+                            tenant,
+                            KIND,
+                            UUID.randomUUID().toString(),
+                            data,
+                            actor,
+                            "RUNTIME_CONFIG_CANDIDATE_CREATED");
+                });
     }
 
     private Map<String, Object> executable(String tenant, Map<String, Object> request) {
@@ -206,21 +207,24 @@ public class RuntimeConfigService {
     }
 
     /**
-     * New configs and new publications must pin the current publication. SUPERSEDED
-     * versions stay resolvable only for configs published before the supersession.
+     * New configs, publications and routes must pin the current publication. SUPERSEDED
+     * versions stay resolvable only for configs published before the supersession. The pinned
+     * rows are locked so a concurrent supersession or withdrawal cannot commit between this check
+     * and the caller's write; lock order is policy, then knowledge, then the runtime record.
      */
-    private void requireCurrentReferences(
-            String tenant, String policyId, List<String> knowledgeIds) {
+    private static void requireCurrentReferences(
+            PlatformStore.Tx tx, String tenant, Map<String, Object> config) {
+        String policyId = config.get("policy_version").toString();
         if (!"PUBLISHED".equals(
-                store.require(tenant, PolicyService.KIND, policyId).data().get("state"))) {
+                tx.requireForUpdate(tenant, PolicyService.KIND, policyId).data().get("state"))) {
             throw new PlatformException(
                     409,
                     "RUNTIME_REFERENCE_NOT_CURRENT",
                     "Runtime configs must pin a currently published policy");
         }
-        for (String knowledgeId : knowledgeIds) {
+        for (String knowledgeId : QualityData.strings(config.get("knowledge_versions"))) {
             if (!"PUBLISHED".equals(
-                    store.require(tenant, KnowledgeService.KIND, knowledgeId)
+                    tx.requireForUpdate(tenant, KnowledgeService.KIND, knowledgeId)
                             .data()
                             .get("state"))) {
                 throw new PlatformException(
@@ -284,18 +288,24 @@ public class RuntimeConfigService {
             throw new PlatformException(
                     403, "SEPARATION_OF_DUTIES", "Runtime publisher must differ from author");
         }
-        requireCurrentReferences(
-                tenant,
-                entity.data().get("policy_version").toString(),
-                QualityData.strings(entity.data().get("knowledge_versions")));
         requireGateEvidence(tenant, entity.data(), report);
         Map<String, Object> data = QualityData.copy(entity.data());
         data.put("state", "PUBLISHED");
         data.put("evaluation_run_id", report.id());
         data.put("published_by", actor);
         data.put("published_at", Instant.now().toString());
-        return store.update(
-                tenant, KIND, id, expectedVersion, data, actor, "RUNTIME_CONFIG_PUBLISHED");
+        return store.transact(
+                tx -> {
+                    requireCurrentReferences(tx, tenant, entity.data());
+                    return tx.update(
+                            tenant,
+                            KIND,
+                            id,
+                            expectedVersion,
+                            data,
+                            actor,
+                            "RUNTIME_CONFIG_PUBLISHED");
+                });
     }
 
     /**
@@ -341,25 +351,33 @@ public class RuntimeConfigService {
                             + " author");
         }
         Map<String, Integer> measured = new LinkedHashMap<>();
-        List<PlatformStore.Entity> results =
-                store.query(
-                        tenant,
-                        QualityEvalService.RESULT + ":" + report.id(),
-                        null,
-                        Set.of(),
-                        null,
-                        "",
-                        100);
-        for (PlatformStore.Entity result : results) {
-            Map<String, Object> scores = QualityData.map(result.data().get("scores"));
-            if ("MEASURED".equals(scores.get("measurement_status"))
-                    && Boolean.TRUE.equals(scores.get("hard_gate_passed"))) {
-                measured.merge(
-                        QualityData.text(
-                                QualityData.map(result.data().get("sample")), "scenario", ""),
-                        1,
-                        Integer::sum);
+        // Every result counts toward the per-scenario minimum, so page through all of them.
+        String cursor = "";
+        while (true) {
+            List<PlatformStore.Entity> results =
+                    store.query(
+                            tenant,
+                            QualityEvalService.RESULT + ":" + report.id(),
+                            null,
+                            Set.of(),
+                            null,
+                            cursor,
+                            100);
+            for (PlatformStore.Entity result : results) {
+                Map<String, Object> scores = QualityData.map(result.data().get("scores"));
+                if ("MEASURED".equals(scores.get("measurement_status"))
+                        && Boolean.TRUE.equals(scores.get("hard_gate_passed"))) {
+                    measured.merge(
+                            QualityData.text(
+                                    QualityData.map(result.data().get("sample")), "scenario", ""),
+                            1,
+                            Integer::sum);
+                }
             }
+            if (results.size() < 100) {
+                break;
+            }
+            cursor = results.get(results.size() - 1).id();
         }
         int minimum = Math.max(1, minMeasuredSamplesPerScenario);
         for (String scenario : scenarios(config)) {
@@ -436,13 +454,16 @@ public class RuntimeConfigService {
         }
         String primary = QualityData.required(request, "primary_config_id", 100);
         String fallback = QualityData.required(request, "fallback_config_id", 100);
+        List<Map<String, Object>> routed = new ArrayList<>();
         for (String configId : List.of(primary, fallback)) {
-            if (!scenarios(resolve(tenant, configId)).contains(scenario)) {
+            Map<String, Object> config = resolve(tenant, configId);
+            if (!scenarios(config).contains(scenario)) {
                 throw new PlatformException(
                         422,
                         "RUNTIME_ROUTE_SCENARIO_NOT_GATED",
                         "Routed configs must have been gated on the route scenario");
             }
+            routed.add(config);
         }
         int percent = integer(request, "rollout_percent", 100, 0, 100);
         Map<String, Object> data = new LinkedHashMap<>();
@@ -454,13 +475,18 @@ public class RuntimeConfigService {
         data.put("station_ids", QualityData.strings(request.get("station_ids")));
         data.put("state", "PUBLISHED");
         data.put("created_by", actor);
-        return store.create(
-                tenant,
-                ROUTE_KIND,
-                UUID.randomUUID().toString(),
-                data,
-                actor,
-                "RUNTIME_ROUTE_PUBLISHED");
+        return store.transact(
+                tx -> {
+                    // A new route widens a config's reach, so superseded pins are not grandfathered.
+                    routed.forEach(config -> requireCurrentReferences(tx, tenant, config));
+                    return tx.create(
+                            tenant,
+                            ROUTE_KIND,
+                            UUID.randomUUID().toString(),
+                            data,
+                            actor,
+                            "RUNTIME_ROUTE_PUBLISHED");
+                });
     }
 
     private static boolean preferred(PlatformStore.Entity route, PlatformStore.Entity selected) {

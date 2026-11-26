@@ -140,7 +140,10 @@ public class RuntimeConfigurationController extends QualityAccess {
         Map<String, Object> body = payload.toMap();
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_PUBLISHER", "ADMIN");
-        config(request, id);
+        // Withdrawal stops every route serving the config, so the actor needs authoring
+        // authority over the config's whole policy scope, not just read visibility.
+        authorizeCreateScope(
+                actor, QualityData.map(config(request, id).data().get("policy_scope")));
         return configs.withdraw(
                 actor.tenantId(),
                 id,
@@ -157,7 +160,9 @@ public class RuntimeConfigurationController extends QualityAccess {
         Map<String, Object> body = payload.toMap();
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_PUBLISHER", "ADMIN");
-        resource(actor, RuntimeConfigService.ROUTE_KIND, id);
+        // Same authority as creating the route: a scoped publisher cannot retire a global route.
+        authorizeCreateScope(
+                actor, resource(actor, RuntimeConfigService.ROUTE_KIND, id).data());
         return configs.withdrawRoute(
                 actor.tenantId(),
                 id,

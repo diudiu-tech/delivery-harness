@@ -243,12 +243,15 @@ public class KnowledgeService implements CitationProvider {
                             nextState = "PUBLISHED";
                         }
                         case "withdraw" -> {
+                            if (reason == null || reason.isBlank()) {
+                                throw new IllegalArgumentException("Withdrawal requires a reason");
+                            }
                             // Superseded versions can still be withdrawn to stop pinned runtimes.
-                            if (!Set.of("PUBLISHED", "SUPERSEDED").contains(state)
-                                    || reason == null
-                                    || reason.isBlank()) {
-                                throw new IllegalArgumentException(
-                                        "Withdrawal requires published version and reason");
+                            if (!Set.of("PUBLISHED", "SUPERSEDED").contains(state)) {
+                                throw new PlatformException(
+                                        409,
+                                        "KNOWLEDGE_NOT_WITHDRAWABLE",
+                                        "Only published or superseded knowledge can be withdrawn");
                             }
                             nextState = "WITHDRAWN";
                         }

@@ -78,7 +78,11 @@ public class KnowledgeVersionController extends QualityAccess {
         Map<String, Object> body = payload.toMap();
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_PUBLISHER", "QUALITY", "ADMIN");
-        resource(actor, KnowledgeService.KIND, id);
+        PlatformStore.Entity entity = resource(actor, KnowledgeService.KIND, id);
+        if ("withdraw".equals(action)) {
+            // Withdrawal retires the version across its whole scope.
+            authorizeCreateScope(actor, entity.data());
+        }
         return knowledge.transition(
                 actor.tenantId(),
                 id,

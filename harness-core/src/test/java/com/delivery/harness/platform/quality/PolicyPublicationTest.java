@@ -124,6 +124,37 @@ class PolicyPublicationTest {
                         .status());
     }
 
+    @Test
+    void onlyPublishedOrSupersededPoliciesCanBeWithdrawn() {
+        var service = new PolicyService(PlatformTestDatabase.memory(), new RuleBaseService());
+        var draft = service.create("tenant", "author", Map.of("rules", List.of(rule("COUPON"))));
+        var notLive =
+                assertThrows(
+                        PlatformException.class,
+                        () -> service.withdraw("tenant", draft.id(), "p", draft.version(), "x"));
+        assertEquals(409, notLive.status());
+        assertEquals("POLICY_NOT_WITHDRAWABLE", notLive.code());
+        var published = service.publish("tenant", draft.id(), "publisher", draft.version());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.withdraw("tenant", draft.id(), "p", published.version(), " "));
+        var withdrawn =
+                service.withdraw("tenant", draft.id(), "p", published.version(), "regression");
+        assertEquals("WITHDRAWN", withdrawn.data().get("state"));
+        assertEquals(
+                "POLICY_NOT_WITHDRAWABLE",
+                assertThrows(
+                                PlatformException.class,
+                                () ->
+                                        service.withdraw(
+                                                "tenant",
+                                                draft.id(),
+                                                "p",
+                                                withdrawn.version(),
+                                                "again"))
+                        .code());
+    }
+
     private static Map<String, Object> rule(String method) {
         return JsonUtil.toMap(
                 RuleInfo.builder()

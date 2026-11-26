@@ -406,6 +406,53 @@ class PostgresMigrationSmokeTest {
         assertEquals("timestamp with time zone", columnType(source, "queue_due_at"));
     }
 
+    @Test
+    void mixedScopeLegacyKnowledgeSplitsIntoScopedChainsOnPostgres() throws Exception {
+        DataSource source = freshDatabase();
+        Flyway.configure()
+                .dataSource(source)
+                .locations("classpath:db/migration")
+                .target("11")
+                .load()
+                .migrate();
+        PlatformStore store = new PlatformStore(source);
+        for (String[] version :
+                List.of(
+                        new String[] {"v1", "1", "PUBLISHED", "A"},
+                        new String[] {"v2", "2", "PUBLISHED", "B"},
+                        new String[] {"v3", "3", "PUBLISHED", "B"})) {
+            store.create(
+                    "tenant",
+                    "knowledge",
+                    version[0],
+                    Map.of(
+                            "document_id",
+                            "doc",
+                            "document_version",
+                            Integer.parseInt(version[1]),
+                            "state",
+                            version[2],
+                            "city_codes",
+                            List.of(version[3]),
+                            "chunks",
+                            List.of(Map.of("chunk_id", version[0] + ":0", "document_id", "doc"))),
+                    "legacy",
+                    "T");
+        }
+        PlatformTestDatabase.migrate(source);
+        assertEquals("PUBLISHED", store.require("tenant", "knowledge", "v1").data().get("state"));
+        assertEquals("SUPERSEDED", store.require("tenant", "knowledge", "v2").data().get("state"));
+        assertEquals("PUBLISHED", store.require("tenant", "knowledge", "v3").data().get("state"));
+        String split =
+                store.require("tenant", "knowledge", "v1").data().get("document_id").toString();
+        assertEquals(
+                List.of("A"),
+                store.require("tenant", "knowledge_document", split).data().get("city_codes"));
+        assertEquals(
+                List.of("B"),
+                store.require("tenant", "knowledge_document", "doc").data().get("city_codes"));
+    }
+
     private void assertLockWaitsForCommit(PlatformStore store) throws Exception {
         ExecutorService other = Executors.newSingleThreadExecutor();
         CountDownLatch locked = new CountDownLatch(1);

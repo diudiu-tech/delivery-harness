@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# Formatting gate. Enforces the four rules .editorconfig already declares:
+# Formatting gate. Enforces the text rules declared in .editorconfig:
 #
 #   1. no trailing whitespace
 #   2. a final newline
 #   3. LF line endings, never CRLF
 #   4. no leading tabs in Java or XML
+#   5. Java lines no longer than 120 Unicode characters
 #
 # Deliberately a shell script rather than a Maven plugin. The rules are worth
 # enforcing; a build-plugin dependency, its version, and its configuration
@@ -34,7 +35,7 @@ FILES=()
 while IFS= read -r -d '' path; do
     FILES+=("$path")
 done < <(git ls-files -z -- \
-    '*.java' '*.xml' '*.yml' '*.yaml' '*.json' '*.md' '*.properties' '*.sh' '*.sql' \
+    '*.java' '*.xml' '*.yml' '*.yaml' '*.json' '*.md' '*.properties' '*.sh' '*.sql' '*.js' '*.css' '*.html' \
     ':!:mvnw' ':!:mvnw.cmd' ':!:.mvn/wrapper/*')
 
 if [ "${#FILES[@]}" -eq 0 ]; then
@@ -82,6 +83,12 @@ for f in "${FILES[@]}"; do
 
     if [ -s "$f" ] && [ "$(tail -c 1 "$f" | wc -l | tr -d ' ')" -eq 0 ]; then
         report "missing final newline: $f"
+    fi
+
+    if [[ "$f" = *.java ]]; then
+        while IFS= read -r hit; do
+            [ -z "$hit" ] || report "Java line over 120:     $f:$hit"
+        done < <(perl -CSD -ne 'chomp; print "$. (" . length($_) . " characters)\n" if length($_) > 120' "$f")
     fi
 
     case "$f" in

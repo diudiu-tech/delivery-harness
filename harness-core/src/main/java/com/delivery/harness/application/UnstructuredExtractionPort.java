@@ -9,7 +9,7 @@ import java.util.Map;
  * Optional hook for extracting unconfirmed signals from unstructured
  * conversation evidence inside a snapshot.
  *
- * <p>By architecture (ADR-0005), extracted signals are never passed to
+ * <p>By architecture (ADR-0011), extracted signals are never passed to
  * {@code SingleSourcePolicyEngine}; they can only trigger human review routing
  * and surface conflict hints.
  */

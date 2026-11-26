@@ -93,7 +93,8 @@ class EvidenceSnapshotTest {
                 () -> assertTrue(corrupt.latestByType(EvidenceType.TIMELINE_OVERTIME_MINUTES)
                         .orElseThrow().value().isInvalid()),
                 () -> assertEquals(2, imAddr.messages().size()),
-                () -> assertEquals(SpeakerRole.CUSTOMER, imAddr.findMessageById("EV-IM-01").orElseThrow().speakerRole()),
+                () -> assertEquals(SpeakerRole.CUSTOMER,
+                        imAddr.findMessageById("EV-IM-01").orElseThrow().speakerRole()),
                 () -> assertEquals(SpeakerRole.RIDER, imAddr.findMessageById("EV-IM-02").orElseThrow().speakerRole()),
                 () -> assertTrue(imAddr.containsEvidenceId("EV-IM-01")),
                 () -> assertEquals(SpeakerRole.RIDER, imAdv.findMessageById("EV-IM-02").orElseThrow().speakerRole()));

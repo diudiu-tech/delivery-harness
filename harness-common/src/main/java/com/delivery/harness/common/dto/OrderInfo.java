@@ -41,6 +41,8 @@ public class OrderInfo {
     private Integer estimatedDurationSeconds;
     private Integer actualDurationSeconds;
     private BigDecimal orderAmount;
+    /** Explicit source evidence; order amount is not a substitute for refundable balance. */
+    private BigDecimal refundableBalance;
     private BigDecimal deliveryFee;
 
     private String stationId;

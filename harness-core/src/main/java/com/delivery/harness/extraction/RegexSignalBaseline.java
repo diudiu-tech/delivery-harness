@@ -14,16 +14,20 @@ import java.util.regex.Pattern;
 /**
  * Honest ~20-line keyword/regex baseline that any LLM extractor must beat on
  * held-out paraphrased conversations to earn its latency and token cost
- * (ADR-0005 / Rev 2.1 P0-8).
+ * (ADR-0011 / Rev 2.1 P0-8).
  */
 @Component
 @RequiredArgsConstructor
 public class RegexSignalBaseline {
 
     private static final Map<SignalType, Pattern> PATTERNS = Map.of(
-            SignalType.CUSTOMER_CHANGED_ADDRESS, Pattern.compile("(改地址|改送到[^，。！？]{1,12}|麻烦送到[^，。！？]{1,12}|送到对面[^，。！？]{1,12})"),
+            SignalType.CUSTOMER_CHANGED_ADDRESS,
+            Pattern.compile("(改地址|改送到[^，。！？]{1,12}|麻烦送到[^，。！？]{1,12}"
+                    + "|送到对面[^，。！？]{1,12})"),
             SignalType.MERCHANT_ITEM_SWAP, Pattern.compile("(换成[^，。！？]{1,10}|替换为[^，。！？]{1,10}|卖完了[^，。！？]{0,10}换)"),
-            SignalType.DAMAGE_CLAIM, Pattern.compile("(撒了[^，。！？]{0,8}|洒了[^，。！？]{0,8}|洒出来|压扁[^，。！？]{0,8}|漏在[^，。！？]{0,8})"),
+            SignalType.DAMAGE_CLAIM,
+            Pattern.compile("(撒了[^，。！？]{0,8}|洒了[^，。！？]{0,8}|洒出来"
+                    + "|压扁[^，。！？]{0,8}|漏在[^，。！？]{0,8})"),
             SignalType.RIDER_ACKNOWLEDGED_DELAY, Pattern.compile("(绕路走错|走错了[^，。！？]{0,8}|看错导航[^，。！？]{0,8})")
     );
 

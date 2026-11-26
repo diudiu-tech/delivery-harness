@@ -57,12 +57,18 @@ function clearBanner() {
   banner.textContent = "";
 }
 
+// Held only in page memory; never persisted, never sent as a cookie.
+let bearerToken = "";
+
 async function apiJson(url, options = {}) {
-  const headers = { ...(options.headers || {}) };
+  if (!bearerToken) {
+    throw new Error("请先在右上角输入 demo bearer token 并连接");
+  }
+  const headers = { ...(options.headers || {}), Authorization: `Bearer ${bearerToken}` };
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
-  const resp = await fetch(url, { ...options, headers });
+  const resp = await fetch(url, { ...options, headers, credentials: "omit" });
   let payload = null;
   try {
     payload = await resp.json();
@@ -192,8 +198,8 @@ function renderCaseHeader(c, run) {
 
   const traceLink = $("active-trace-link");
   if (run && run.traceId) {
-    traceLink.href = `/api/observe/traces/${encodeURIComponent(run.traceId)}`;
-    traceLink.textContent = `Trace ${shortHash(run.traceId)}`;
+    // A link cannot carry the bearer, so show the id for /api/v1/observe/trace/{id} lookups.
+    traceLink.textContent = `Trace ${run.traceId}`;
     traceLink.classList.remove("hidden");
   } else {
     traceLink.classList.add("hidden");
@@ -882,10 +888,21 @@ function wireEvents() {
   $("decision-form").addEventListener("submit", onDecisionSubmit);
 }
 
-async function init() {
-  wireEvents();
+async function connect() {
+  bearerToken = $("token-input").value.trim();
+  $("token-input").value = "";
+  if (!bearerToken) {
+    showBanner("error", "请输入 demo bearer token");
+    return;
+  }
+  clearBanner();
   await loadFixtures();
   await refreshCases();
+}
+
+function init() {
+  wireEvents();
+  $("connect-btn").addEventListener("click", connect);
 }
 
 init();

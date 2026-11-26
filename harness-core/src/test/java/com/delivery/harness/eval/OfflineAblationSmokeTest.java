@@ -140,7 +140,8 @@ class OfflineAblationSmokeTest {
         IndependentEvalScorer.TextSplitMetrics stubHoldMetrics = IndependentEvalScorer.scoreTextSplit(stubHold);
 
         assertEquals(0, regexDevMetrics.exemptionFalsePositives(), "Regex baseline must have 0 exemption FPs on dev");
-        assertEquals(0, regexHoldMetrics.exemptionFalsePositives(), "Regex baseline must have 0 exemption FPs on holdout");
+        assertEquals(0, regexHoldMetrics.exemptionFalsePositives(),
+                "Regex baseline must have 0 exemption FPs on holdout");
         assertTrue(regexHoldMetrics.hardGatePassed(), "Regex baseline hard gate failed on holdout");
         assertTrue(stubHoldMetrics.hardGatePassed(), "Stub smoke hard gate failed on holdout");
 
@@ -173,7 +174,8 @@ class OfflineAblationSmokeTest {
                 new CaseApplicationService.CreateCaseCommand(orderId, complaintType, null)).deliveryCase();
         if (attestedDamage != null) {
             return svc.attestEvidence(created.caseId(),
-                    new CaseApplicationService.AttestCommand("DAMAGE_LEVEL", attestedDamage, "eval-op", created.version()));
+                    new CaseApplicationService.AttestCommand(
+                            "DAMAGE_LEVEL", attestedDamage, "eval-op", created.version()));
         }
         return created;
     }

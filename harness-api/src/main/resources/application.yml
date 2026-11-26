@@ -1,6 +1,17 @@
 spring:
   application:
     name: delivery-harness
+  profiles:
+    active: ${HARNESS_MODE:demo}
+  datasource:
+    url: ${HARNESS_DATABASE_URL:jdbc:h2:mem:harness;DB_CLOSE_DELAY=-1}
+    username: ${HARNESS_DATABASE_USERNAME:sa}
+    password: ${HARNESS_DATABASE_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+  flyway:
+    enabled: true
   jackson:
     default-property-inclusion: non_null
     serialization:
@@ -15,14 +26,48 @@ server:
       force: true
 
 harness:
+  mode: ${HARNESS_MODE:demo}
+  security:
+    demo-identities: '${HARNESS_DEMO_IDENTITIES:}'
+    allowed-hosts: ${HARNESS_BROWSER_ALLOWED_HOSTS:localhost,127.0.0.1,[::1]}
+    allowed-origins: ${HARNESS_BROWSER_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080,http://[::1]:8080}
+    oidc:
+      issuer: ${HARNESS_OIDC_ISSUER:}
+      audience: ${HARNESS_OIDC_AUDIENCE:}
+      jwk-set-uri: ${HARNESS_OIDC_JWK_SET_URI:}
+  adapter:
+    order-endpoint: ${HARNESS_ORDER_ENDPOINT:}
+    allowed-hosts: ${HARNESS_ORDER_ALLOWED_HOSTS:}
+    token: ${HARNESS_ORDER_TOKEN:}
+  execution:
+    deterministic-only: ${HARNESS_DETERMINISTIC_ONLY:false}
+    online-workers: ${HARNESS_EXECUTION_WORKERS:2}
+    online-queue: ${HARNESS_EXECUTION_QUEUE:50}
+    deadline-seconds: ${HARNESS_EXECUTION_DEADLINE_SECONDS:15}
+  review:
+    approval-threshold: ${HARNESS_REVIEW_APPROVAL_THRESHOLD:10.00}
   llm:
+    allowed-hosts: ${HARNESS_LLM_ALLOWED_HOSTS:}
     default-endpoint: ${HARNESS_LLM_ENDPOINT:http://localhost:11434}
     default-model: ${HARNESS_LLM_MODEL:qwen2.5:7b}
     api-key: ${HARNESS_LLM_API_KEY:}
-    timeout-seconds: ${HARNESS_LLM_TIMEOUT_SECONDS:15}
+    timeout-seconds: ${HARNESS_LLM_TIMEOUT_SECONDS:120}
     extraction:
       enabled: ${HARNESS_LLM_EXTRACTION_ENABLED:false}
+  guardrail:
+    max-compensation-amount: ${HARNESS_MAX_COMPENSATION_AMOUNT:50.0}
   cases:
     max-cases: ${HARNESS_MAX_CASES:500}
   observe:
     max-traces: ${HARNESS_MAX_TRACES:500}
+    max-tool-invocations: ${HARNESS_MAX_TOOL_INVOCATIONS:2000}
+  quality:
+    publish-gate:
+      # Measured, passing samples required per declared scenario before runtime publication.
+      min-measured-samples-per-scenario: ${HARNESS_PUBLISH_MIN_SAMPLES_PER_SCENARIO:20}
+  eval:
+    max-cases: ${HARNESS_MAX_EVAL_CASES:1000}
+    max-runs: ${HARNESS_MAX_EVAL_RUNS:200}
+  knowledge:
+    max-documents: ${HARNESS_MAX_KNOWLEDGE_DOCUMENTS:1000}
+    max-chunks: ${HARNESS_MAX_KNOWLEDGE_CHUNKS:5000}

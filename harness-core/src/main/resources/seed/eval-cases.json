@@ -1,0 +1,68 @@
+[
+  {
+    "caseId": "EC-001",
+    "scenario": "abnormal_order_analysis",
+    "title": "商家出餐慢导致超时",
+    "description": "骑手到店后等待28分钟取餐，其余各段正常。TEST001 固定映射到 MERCHANT_SLOW 场景。",
+    "input": {"order_id": "TEST001"},
+    "expectedRuleIds": ["ANA-001"],
+    "expectedToolCalls": ["order_query", "eta_query", "capacity_query"],
+    "expertAnswer": "商家出餐慢",
+    "tags": ["超时", "归因", "商家"]
+  },
+  {
+    "caseId": "EC-002",
+    "scenario": "abnormal_order_analysis",
+    "title": "运力不足导致接单延迟",
+    "description": "下单后22分钟才被接单，站点 S002 运力比 0.95。TEST002 固定映射到 CAPACITY_SHORT 场景。",
+    "input": {"order_id": "TEST002"},
+    "expectedRuleIds": ["ANA-002"],
+    "expectedToolCalls": ["order_query", "eta_query", "capacity_query"],
+    "expertAnswer": "运力不足",
+    "tags": ["超时", "归因", "运力"]
+  },
+  {
+    "caseId": "EC-003",
+    "scenario": "abnormal_order_analysis",
+    "title": "暴雨导致路途耗时异常",
+    "description": "路途耗时44分钟，基准ETA远低于此，当日暴雨。DEMO-003 固定映射到 WEATHER_DELAY 场景。",
+    "input": {"order_id": "DEMO-003"},
+    "expectedRuleIds": ["ANA-003"],
+    "expectedToolCalls": ["order_query", "eta_query", "capacity_query"],
+    "expertAnswer": "天气异常",
+    "tags": ["超时", "归因", "天气"]
+  },
+  {
+    "caseId": "EC-004",
+    "scenario": "abnormal_order_analysis",
+    "title": "未超时单不得给出超时归因",
+    "description": "送达早于承诺时间。这条用例存在的目的是让「永远回答超时」这一常数策略拿不到满分。TEST005 固定映射到 ON_TIME 场景。",
+    "input": {"order_id": "TEST005"},
+    "expectedRuleIds": ["ANA-006"],
+    "expectedToolCalls": ["order_query", "eta_query", "capacity_query"],
+    "expertAnswer": "无异常",
+    "tags": ["正常单核查", "对照组"]
+  },
+  {
+    "caseId": "EC-005",
+    "scenario": "compensation_suggestion",
+    "title": "严重超时赔付定档",
+    "description": "超时35分钟，订单金额64元，应命中 COMP-001 并按50%封顶20元。TEST003 固定映射到 SEVERE_MERCHANT_SLOW 场景。",
+    "input": {"order_id": "TEST003", "complaint_type": "OVERTIME"},
+    "expectedRuleIds": ["COMP-001"],
+    "expectedToolCalls": ["order_query", "compensation_rule"],
+    "expertAnswer": "适用严重超时规则，按订单金额50%封顶赔付",
+    "tags": ["赔付", "超时", "严重"]
+  },
+  {
+    "caseId": "EC-006",
+    "scenario": "compensation_suggestion",
+    "title": "一般超时赔付定档",
+    "description": "超时18分钟，应命中 COMP-002 发放5元优惠券。TEST004 固定映射到 MERCHANT_SLOW 场景。",
+    "input": {"order_id": "TEST004", "complaint_type": "OVERTIME"},
+    "expectedRuleIds": ["COMP-002"],
+    "expectedToolCalls": ["order_query", "compensation_rule"],
+    "expertAnswer": "适用一般超时规则，发放5元优惠券",
+    "tags": ["赔付", "超时", "一般"]
+  }
+]

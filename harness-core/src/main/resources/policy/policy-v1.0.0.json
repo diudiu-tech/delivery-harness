@@ -16,7 +16,7 @@
     "toShopBaselineMinutes": 8,
     "normalMerchantPrepBaselineMinutes": 10,
     "strainedCapacityRatio": 0.85,
-    "rationale": "Locked in PR2 (ADR-0007): 8 min excess filters normal delivery noise; 5 min dominance margin separates single primary candidate from MULTI_FACTOR; 4/8/10 min represent normal-state SLA baselines rather than strained real-time station averages; 0.85 matches station strain threshold."
+    "rationale": "Locked in PR2 (ADR-0013): 8 min excess filters normal delivery noise; 5 min dominance margin separates single primary candidate from MULTI_FACTOR; 4/8/10 min represent normal-state SLA baselines rather than strained real-time station averages; 0.85 matches station strain threshold."
   },
   "limits": {
     "approvalThreshold": 10.00,

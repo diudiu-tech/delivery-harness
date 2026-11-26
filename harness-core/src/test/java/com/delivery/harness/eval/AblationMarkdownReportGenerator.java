@@ -6,7 +6,7 @@ import java.util.Locale;
  * Renders a PR-ready Markdown ablation report comparing
  * {@code DETERMINISTIC_ONLY}, {@code REGEX_BASELINE}, and
  * {@code DETERMINISTIC_PLUS_EXTRACT}, including explicit stub banners and the
- * ADR-0005 exit clause.
+ * ADR-0011 exit clause.
  */
 final class AblationMarkdownReportGenerator {
 
@@ -25,7 +25,8 @@ final class AblationMarkdownReportGenerator {
         StringBuilder sb = new StringBuilder();
         sb.append("# Delivery Harness Ablation & Hard-Gate Report\n\n");
         if (isStub) {
-            sb.append("> **PIPELINE_SMOKE_ONLY（非模型质量）**：本次运行使用 `StubLlmClient`，仅证明管线连通与硬门禁有效，不得与真实模型数据混排或用于声明模型准确率。\n\n");
+            sb.append("> **PIPELINE_SMOKE_ONLY（非模型质量）**：本次运行使用 `StubLlmClient`，"
+                    + "仅证明管线连通与硬门禁有效，不得与真实模型数据混排或用于声明模型准确率。\n\n");
         }
         sb.append("- `modelId`: `").append(modelId).append("`\n");
         sb.append("- `promptHash`: `").append(promptHash).append("`\n");
@@ -34,7 +35,8 @@ final class AblationMarkdownReportGenerator {
 
         sb.append("## Holdout Split Comparison (`text-corpus.json`, n=")
                 .append(regexHoldout.sampleCount()).append(")\n\n");
-        sb.append("| Mode | Signal Precision | Signal Recall | F1 | Conflict Recall | Exemption FP (Veto) | Injection Caught | Hard Gate |\n");
+        sb.append("| Mode | Signal Precision | Signal Recall | F1 | Conflict Recall "
+                + "| Exemption FP (Veto) | Injection Caught | Hard Gate |\n");
         sb.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n");
         sb.append("| `DETERMINISTIC_ONLY` | n/a | 0.00 | 0.00 | 0.00 | 0 | ")
                 .append(regexHoldout.untrustedDetected()).append("/").append(regexHoldout.untrustedExpected())
@@ -43,12 +45,13 @@ final class AblationMarkdownReportGenerator {
         appendRow(sb, isStub ? "STUB_LLM_EXTRACT (smoke)" : "LLM_EXTRACT", llmHoldout);
 
         sb.append("\n## Dev Split Reference (n=").append(regexDev.sampleCount()).append(")\n\n");
-        sb.append("| Mode | Signal Precision | Signal Recall | F1 | Conflict Recall | Exemption FP (Veto) | Injection Caught | Hard Gate |\n");
+        sb.append("| Mode | Signal Precision | Signal Recall | F1 | Conflict Recall "
+                + "| Exemption FP (Veto) | Injection Caught | Hard Gate |\n");
         sb.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n");
         appendRow(sb, "REGEX_BASELINE (20-line)", regexDev);
         appendRow(sb, isStub ? "STUB_LLM_EXTRACT (smoke)" : "LLM_EXTRACT", llmDev);
 
-        sb.append("\n## Decision Verdict (ADR-0005 Exit Clause)\n\n");
+        sb.append("\n## Decision Verdict (ADR-0011 Exit Clause)\n\n");
         if (isStub) {
             sb.append("- **PIPELINE_SMOKE_ONLY**: 管线与独立硬门禁验证通过；真实模型增益结论须通过 `@Tag(\"live-llm\")` 离线执行后产出。\n");
         } else if (!llmHoldout.hardGatePassed() || contractHardGateFailures > 0) {

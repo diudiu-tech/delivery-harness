@@ -1,6 +1,5 @@
 package com.delivery.harness.evidence;
 
-import com.delivery.harness.agent.analysis.OrderTimeline;
 import com.delivery.harness.common.dto.OrderInfo;
 import com.delivery.harness.common.evidence.EvidenceType;
 import com.delivery.harness.common.evidence.EvidenceValue;
@@ -67,7 +66,7 @@ public class SyntheticEvidenceSource implements EvidenceSource {
 
         OrderInfo order = spec.orderBuilder().build(orderId.trim(), FROZEN_DELIVERY_LOCAL);
         MinuteRoundingMode roundingMode = policyBundleLoader.activeBundle().minuteRoundingMode();
-        OrderTimeline timeline = OrderTimeline.of(order, FROZEN_CLOCK, roundingMode);
+        EvidenceTimeline timeline = EvidenceTimeline.of(order, FROZEN_CLOCK, roundingMode);
 
         Instant observedAt = FROZEN_INSTANT;
         Instant eventAsOf = resolveAsOf(order, asOfOverride);

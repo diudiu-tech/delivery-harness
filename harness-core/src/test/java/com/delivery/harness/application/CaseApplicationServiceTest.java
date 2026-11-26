@@ -193,11 +193,13 @@ class CaseApplicationServiceTest {
         assertEquals(CaseStatus.APPROVED_PENDING_EXECUTION, approved.status());
         assertEquals(new BigDecimal("60.00"), approved.approvedPayoutAmount());
 
-        // Recording receipt after override/over-cap approval must render the actual approved amount (60.00), not rule 5.00.
+        // Recording receipt after override/over-cap approval must render the actual approved
+        // amount (60.00), not rule 5.00.
         DeliveryCase executed = service.submitDecision(
                 approved.caseId(),
                 new CaseApplicationService.DecisionCommand(
-                        approved.latestRun().runId(), approved.version(), DecisionAction.RECORD_EXECUTION_RECEIPT, "ops-1",
+                        approved.latestRun().runId(), approved.version(),
+                        DecisionAction.RECORD_EXECUTION_RECEIPT, "ops-1",
                         null, null, null, null, null, "PAY-OVER-60", null));
         assertAll(
                 () -> assertEquals(CaseStatus.CLOSED, executed.status()),

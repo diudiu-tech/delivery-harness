@@ -16,6 +16,7 @@ import java.util.List;
  * explicitly activated.
  */
 @Profile("demo")
+@BenchmarkApi
 @RestController
 @RequestMapping("/api/demo")
 @RequiredArgsConstructor

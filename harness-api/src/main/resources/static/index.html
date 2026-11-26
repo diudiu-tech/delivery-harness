@@ -12,12 +12,13 @@
       <h1>Delivery Harness Workbench</h1>
       <span class="subtitle">确定性核心 + 最小概率面 · 单 Case 复核工作台</span>
     </div>
-    <nav class="topbar-links" aria-label="Observability & Policy JSON">
-      <a href="/api/policies/active" target="_blank" rel="noopener noreferrer">Active Policy JSON</a>
-      <a href="/api/observe/metrics" target="_blank" rel="noopener noreferrer">Metrics JSON</a>
-      <a href="/api/observe/traces" target="_blank" rel="noopener noreferrer">Recent Traces</a>
-      <a id="active-trace-link" class="hidden" target="_blank" rel="noopener noreferrer">Current Trace</a>
-    </nav>
+    <div class="topbar-links" aria-label="Demo identity">
+      <!-- /api/** requires an explicit bearer; the token stays in page memory only. -->
+      <label for="token-input">Bearer token</label>
+      <input id="token-input" type="password" autocomplete="off" maxlength="512" placeholder="demo-agent-token">
+      <button id="connect-btn" type="button" class="btn">连接</button>
+      <span id="active-trace-link" class="hidden"></span>
+    </div>
   </header>
 
   <main class="container">

@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies the ADR-0005 trust boundary: negation rejection, self-serving rider
+ * Verifies the ADR-0011 trust boundary: negation rejection, self-serving rider
  * rejection, known prompt-injection interception, free-text digit rejection,
  * LLM outage graceful degradation, and exact adjudication invariance.
  */
@@ -149,7 +149,7 @@ class ClaimVerifierAndExtractorTest {
 
         assertAll(
                 () -> assertEquals(withoutLlm.latestRun().adjudication(), withLlm.latestRun().adjudication(),
-                        "ADR-0005: adjudication must be identical regardless of LLM signal"),
+                        "ADR-0011: adjudication must be identical regardless of LLM signal"),
                 () -> assertEquals(0, withoutLlm.latestRun().unconfirmedSignals().size()),
                 () -> assertEquals(1, withLlm.latestRun().unconfirmedSignals().size()),
                 () -> assertEquals("CUSTOMER", withLlm.latestRun().unconfirmedSignals().get(0).get("speaker_role")),

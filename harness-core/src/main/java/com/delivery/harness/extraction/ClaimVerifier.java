@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 
 /**
  * Deterministic verifier enforcing the trust boundary around unstructured
- * extraction (ADR-0005):
+ * extraction (ADR-0011):
  * <ul>
  *   <li>defense-in-depth prompt-injection pre-scan marking {@code UNTRUSTED_TEXT}
  *       (stripping invisible format/control chars and collapsing whitespace/separators)</li>

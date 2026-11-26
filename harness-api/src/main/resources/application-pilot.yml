@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${HARNESS_DATABASE_URL:}
+    username: ${HARNESS_DATABASE_USERNAME:}
+    password: ${HARNESS_DATABASE_PASSWORD:}
+harness:
+  security:
+    # Pilot deliberately rejects any nonempty demo-identities or legacy cleartext token configuration.
+    demo-identities: '${HARNESS_DEMO_IDENTITIES:[]}'
+  knowledge:
+    seed:
+      enabled: false
+  eval:
+    seed:
+      enabled: false

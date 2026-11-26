@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies deterministic residual attribution against the PR2-locked
- * PolicyBundle thresholds and unmodified fixture numbers (ADR-0007).
+ * PolicyBundle thresholds and unmodified fixture numbers (ADR-0013).
  */
 class DeterministicResidualEngineTest {
 

@@ -28,9 +28,6 @@ public class AuditLogFilter implements Filter {
         String traceId = TraceUtil.generateTraceId();
         TraceUtil.setTraceId(traceId);
         httpResponse.setHeader("X-Trace-Id", traceId);
-        httpResponse.setHeader("Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'self'");
-        httpResponse.setHeader("X-Content-Type-Options", "nosniff");
 
         long startTime = System.currentTimeMillis();
         try {

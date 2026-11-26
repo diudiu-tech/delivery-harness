@@ -10,7 +10,7 @@ import java.util.Objects;
 
 /**
  * Pure deterministic customer message template renderer replacing LLM-generated
- * customer drafts (P1 / ADR-0005).
+ * customer drafts (P1 / ADR-0011).
  *
  * <p>Guarantees structurally that:
  * <ul>

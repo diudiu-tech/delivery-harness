@@ -320,7 +320,8 @@ public class CaseApplicationService {
                 BigDecimal effectiveAmount = resolveAmountToApprove(current, latestRun, command.finalAmount());
                 if (effectiveAmount == null) {
                     throw new BizException(400,
-                            "Cannot APPROVE without a determinable payout amount; specify final_amount or request evidence");
+                            "Cannot APPROVE without a determinable payout amount; "
+                                    + "specify final_amount or request evidence");
                 }
                 if (effectiveAmount.compareTo(limits.escalationCap()) > 0) {
                     requireNonBlank(command.exceptionReason(),

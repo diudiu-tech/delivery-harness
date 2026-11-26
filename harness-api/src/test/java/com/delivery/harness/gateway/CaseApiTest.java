@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@Import(DemoApiTestSupport.class)
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class CaseApiTest {
@@ -160,7 +162,7 @@ class CaseApiTest {
                 .andExpect(jsonPath("$.data.caseId").value(caseId));
 
         String traceId = attested.path("runs").get(1).path("traceId").asText();
-        mockMvc.perform(get("/api/observe/traces/{traceId}", traceId))
+        mockMvc.perform(get("/api/v1/observe/trace/{traceId}", traceId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.traceId").value(traceId));
     }

@@ -3,8 +3,8 @@ name: CodeQL
 on:
   push:
     branches: [main]
+  # Stacked reviews need the same security gates as a PR targeting main.
   pull_request:
-    branches: [main]
   schedule:
     - cron: '17 3 * * 1'
 

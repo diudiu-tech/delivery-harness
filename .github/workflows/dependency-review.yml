@@ -10,8 +10,8 @@ name: Dependency Review
 # than none because it still looks like coverage.
 
 on:
+  # Stacked reviews need the same security gates as a PR targeting main.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read

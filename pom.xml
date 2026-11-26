@@ -46,29 +46,30 @@
 
         <jacoco.version>0.8.15</jacoco.version>
 
-        <!--
-          Coverage floor for harness-core, the module that holds every
-          decision. A ratchet, not a target: raise it whenever a branch lands
-          above it, never lower it to make a build pass — a drop is the
-          finding.
+        <!-- Core-only line coverage is a ratchet, not a quality certification.
+             Cross-module API exercise is reported separately by report-aggregate.
+             Never lower the floor to make a failing build pass. -->
+        <jacoco.core.line.minimum>0.70</jacoco.core.line.minimum>
 
-          Calibrated against a real build, not guessed: harness-core measures
-          0.3528 (598 of 1695 lines), so the floor is 0.30. Headroom is
-          deliberately thin, which is what a ratchet is for.
-
-          That number is low, and the reason is a measurement artefact rather
-          than untested code: the end-to-end tests that exercise the workflows
-          live in harness-api, so the harness-core lines they cover are not
-          attributed here. jacoco:report-aggregate across modules is the fix
-          and would likely more than double this figure. Until that lands,
-          read this as "nobody deleted the unit tests", not as a quality
-          statement.
-        -->
-        <jacoco.core.line.minimum>0.30</jacoco.core.line.minimum>
+        <!-- Real PostgreSQL binaries for migration/store smoke tests; no Docker needed. -->
+        <embedded-postgres.version>2.2.3</embedded-postgres.version>
+        <embedded-postgres-binaries.version>17.12.0</embedded-postgres-binaries.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.zonky.test.postgres</groupId>
+                <artifactId>embedded-postgres-binaries-bom</artifactId>
+                <version>${embedded-postgres-binaries.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.zonky.test</groupId>
+                <artifactId>embedded-postgres</artifactId>
+                <version>${embedded-postgres.version}</version>
+            </dependency>
             <!-- internal modules -->
             <dependency>
                 <groupId>com.delivery.harness</groupId>

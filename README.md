@@ -6,224 +6,478 @@
 ![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5.16-6DB33F?logo=springboot&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An open-source **AI Harness Engineering reference benchmark** for on-demand delivery abnormal-order review and compensation adjudication. It runs out of the box with **zero LLM required** on a deterministic core (three-valued evidence ledger, single-source `PolicyBundle`, residual attribution, deterministic customer templates, and a structured human-decision state machine) and isolates optional LLM usage to the **minimum probabilistic surface**: unstructured conversation signal extraction under strict unidirectional risk routing.
+An AI harness reference implementation for on-demand delivery operations. It combines deterministic workflows, mock business tools, lightweight knowledge retrieval, an OpenAI-compatible model endpoint, evaluation scaffolding, and human-review guardrails.
 
 > [!IMPORTANT]
-> This repository is an open-source reference implementation and benchmark, not a production delivery or payout system. Built-in fixtures use synthetic data, state is stored in memory, there is no authentication (`operator_id` is explicitly recorded as `unauthenticated_operator_id`), and nothing here executes real payments. Do not expose the application to the public internet or feed real personal/order data into it without authentication, durable storage, and external payment controls.
+> This repository is an educational MVP, not a production-ready delivery or compensation system. Business tools use synthetic data, most state is held in memory, and model output is advisory. Do not expose the application to the public internet, submit real personal/order data, or execute compensation decisions without authentication, policy enforcement, and human approval.
 
-## Core Design Principles
+## What is implemented
 
-- **Zero-LLM deterministic core**: Immutable closed `EV-*` evidence snapshots with Java 17 three-valued `sealed interface EvidenceValue<T>` (`Known` / `Unknown` / `Invalid`) and canonical SHA-256 hashing ([ADR-0006](docs/adr/0006-three-valued-evidence-ledger-and-deterministic-snapshots.md)).
-- **Single-source `PolicyBundle`**: One versioned, startup-validated JSON bundle (`policy-v1.0.0.json`) owns all compensation rules, intervals, approval threshold, escalation cap, staleness limits, attribution thresholds, and routing matrix ([ADR-0007](docs/adr/0007-single-source-policy-bundle.md)).
-- **Deterministic residual diagnosis**: Computes five candidate delay factors (`DISPATCH_WAIT_EXCESS`, `TO_SHOP_EXCESS`, `MERCHANT_PREP_EXCESS`, `WEATHER_EXPLAINED`, and neutral `UNEXPLAINED_ROAD_EXCESS`), preserves negative raw deltas, exposes `MULTI_FACTOR` / `UNDETERMINED` outcomes and evidence gaps honestly, and never assigns automatic liability.
-- **Minimum probabilistic surface & unidirectional routing**: Optional LLM extraction (`harness.llm.extraction.enabled=false` by default) extracts only unconfirmed signals (`ClaimedFact`) from IM text, verified deterministically via `ClaimVerifier` (Unicode NFKC, single-message offset binding, metadata `SpeakerRole` self-serving guard, negation window, injection pre-scan). By method signature and bytecode architecture tests, `SingleSourcePolicyEngine` never accepts `ClaimedFact` ([ADR-0005](docs/adr/0005-minimum-probabilistic-surface-and-unidirectional-routing.md)).
-- **Human-in-the-loop Case workflow**: Unified `/api/cases` aggregate with optimistic concurrency (`expected_case_version`), `Idempotency-Key` replay, single open case per `(orderId, complaintType)`, human evidence attestation (`EV-HUMAN-*`), over-cap supervisor escalation requiring `exception_reason`, and external execution receipt recording before customer drafts switch to completed wording.
-- **Zero-build Single-Case Workbench**: Embedded HTML/CSS/Vanilla JS UI served from `harness-api` with strict `Content-Security-Policy` (`default-src 'self'`), zero `innerHTML` sinks, and zero Node/npm build steps.
+- Two synchronous workflows: abnormal-order analysis and compensation suggestion.
+- Four locally registered tools for orders, ETA, station capacity, and compensation rules. Every tool derives its result from its arguments.
+- Synthetic orders that vary by order ID across six named scenarios, including one delivered on time.
+- A deterministic timeline that splits an order into dispatch wait, to-shop, merchant prep, and on-road legs, reported alongside the model's answer as the baseline it has to beat.
+- Compensation amounts decided by the rule engine, never by the model ([ADR-0002](docs/adr/0002-rule-engine-owns-the-compensation-amount.md)).
+- OpenAI-compatible chat-completions client behind an interface, so workflows are testable without a model.
+- In-memory document ingestion, text chunking, lexical retrieval scored by query-term overlap, and a rule and case base seeded at startup.
+- In-memory evaluation runs whose scorers report "not measured" rather than a perfect score when a case declares no expectation.
+- Request trace IDs, per-step durations, a bounded trace store, per-scenario metrics, feedback storage, and advisory output checks.
+- Completed workflows with an unavailable optional dependency are reported as `DEGRADED`; the deterministic result remains available and the affected step is recorded as failed.
+- A local Ollama profile, regression tests, Maven Wrapper, and GitHub Actions CI.
 
-The following are intentionally **not** claimed as implemented: autonomous agent planning, production ERP/delivery integrations, durable database persistence, vector/RAG search ([ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md) retired), authentication/RBAC, rate limiting, distributed tracing, or automatic payment execution. See [Known limitations](#known-limitations).
+The following are intentionally **not** claimed as implemented: autonomous agent planning, production tool integrations, production-validated persistence, vector embeddings/Milvus RAG, organization-validated identity integration, production quotas, distributed tracing, or automatic compensation execution. See [Known limitations](#known-limitations).
 
-## Architecture
+### Trusted decision semantics (breaking changes)
 
-```mermaid
-flowchart LR
-    UI["Embedded Workbench\n(Zero-build static UI)"] --> Api["harness-api\n/api/cases, /api/policies,\n/api/observe, /api/demo"]
-    Client["REST Client"] --> Api
-    Api --> App["core: application\nCaseApplicationService"]
-    App --> Evidence["core: evidence\nEvidenceSource SPI\nClosed EV-* Snapshot"]
-    App --> Diag["core: diagnosis\nDeterministicResidualEngine"]
-    App --> Policy["core: policy\nSingleSourcePolicyEngine\nPolicyBundle"]
-    App --> Template["core: template\nDeterministicCustomerTemplateRenderer"]
-    App --> Extract["core: extraction (optional)\nUnstructuredExtractor + ClaimVerifier"]
-    Extract -.->|"opt-in only"| LLM["core: llm\nLlmClient SPI"]
-    App --> Store["core: cases\nCaseStore SPI"]
-    App --> Observe["core: observe\nTrace & Metrics"]
-```
+Timeline calculations retain seconds. Missing endpoints and reversed timestamps
+remain unknown in the trusted output; they cannot establish a zero-duration leg
+or compensation eligibility. Positive subminute delays count as late; legacy
+minute counters remain integers. Model citations are checked against the exact
+evidence and policy snapshot. Customer messages are generated by the server
+from the authoritative decision and review state.
 
-### Three Core SPIs
+When only the model is unavailable, a usable deterministic result returns HTTP
+200 with `DEGRADED` instead of HTTP 502. Clients must inspect status and evidence
+validation; missing policy or facts never become an approved compensation.
+Compensation methods use canonical enum IDs, and refund amounts cannot exceed
+the verified refundable balance. Legacy `suggested_amount` may remain a candidate;
+`authoritative_amount` stays null until the required facts establish a decision.
+Configure the single approval threshold with
+`HARNESS_REVIEW_APPROVAL_THRESHOLD` / `harness.review.approval-threshold` (default
+`10.00`); the old `harness.compensation.approval-threshold` property is replaced.
+See [ADR-0005](docs/adr/0005-trusted-workflow-output-contract.md).
 
-To adapt this reference harness to a real delivery backend, replace three interfaces:
+### Model call boundary
 
-1. `com.delivery.harness.evidence.EvidenceSource` — replaces `SyntheticEvidenceSource` to assemble immutable point-in-time (`asOf`) `EvidenceSnapshot` records from real order, ETA, station, and IM systems.
-2. `com.delivery.harness.cases.CaseStore` — replaces `InMemoryCaseStore` with durable database storage and transactional optimistic locking.
-3. `com.delivery.harness.llm.gateway.LlmClient` — optional OpenAI-compatible transport used only when `harness.llm.extraction.enabled=true`.
+A model call has one deadline covering upload, headers, response body and retries.
+Response bytes stop at 1 MiB; cancellation interrupts pending calls. Versioned
+runtime bindings permit at most two retries for connection/timeout failures and
+HTTP 429/502/503/504, within the original deadline; legacy calls do not retry.
+Pilot requires an explicit `HARNESS_LLM_ALLOWED_HOSTS` allowlist and HTTPS
+(explicit loopback HTTP is allowed for tests). Redirects are rejected. Code-owned
+constraints remain system messages; configurable task prompts have lower priority.
 
-## Modules
+### Indexed storage foundation
 
-| Module | Responsibility |
-| --- | --- |
-| `harness-common` | Three-valued `EvidenceValue<T>`, `EvidenceType`, `OrderTimeline`, `HarnessTimeConfig`, DTOs, exceptions (`BizException`, `ConflictException`, `ResourceNotFoundException`), and trace context. No internal dependencies. |
-| `harness-core` | Deterministic core and SPIs: `policy` (`PolicyBundle`, `PolicyBundleValidator`, `SingleSourcePolicyEngine`), `evidence` (`EvidenceSnapshot`, `EvidenceSource`, 13 synthetic contract fixtures), `diagnosis` (`DeterministicResidualEngine`), `template` (`DeterministicCustomerTemplateRenderer`), `cases` (`DeliveryCase`, `AssessmentRun`, `HumanDecision`, `CaseStore`), `application` (`CaseApplicationService`), `extraction` (`ClaimVerifier`, `RegexSignalBaseline`, `UnstructuredExtractor`), `llm`, `observe`, plus offline & live-LLM ablation evaluation utilities. |
-| `harness-api` | Executable Spring Boot application: unified REST controllers, validation, `AuditLogFilter` (trace ID + CSP headers), zero-build Single-Case Workbench (`src/main/resources/static/`). |
-| `llm-inference` | Optional pinned Ollama container definition and smoke-test script. |
+Platform records and audit events use JDBC and core-owned Flyway migrations.
+Material bodies are separated from indexed metadata. Read helpers do not commit;
+writes and audit events share one transaction with optimistic version checks.
+Audit ordering uses timestamps and event IDs, with scoped SQL pagination.
+The default H2 database is an in-memory demonstration; configure
+`HARNESS_DATABASE_URL`, username and password for a durable deployment.
+PostgreSQL drivers are included, but H2 migration tests do not certify a real
+PostgreSQL deployment. See [ADR-0006](docs/adr/0006-indexed-metadata-and-separated-material-content.md).
 
-See [ADR-0004](docs/adr/0004-three-maven-modules-instead-of-nine.md) for why the repository keeps three Maven modules.
+### Explicit API identity (breaking change)
 
-## Prerequisites
+Every `/api/**` request needs an explicit bearer. Local demo offers
+`demo-agent-token`, `demo-reviewer-token`, `demo-supervisor-token`,
+`demo-admin-token` and `demo-publisher-token` with separate roles. Blank
+`HARNESS_DEMO_IDENTITIES` selects these public synthetic identities; `[]`
+disables them. Demo also checks literal Host/Origin allowlists.
 
-- JDK 17 or newer
-- Maven 3.6.3 or newer, or the included Maven Wrapper (`./mvnw`)
-- Docker with Compose support — **only** if you opt into running a local Ollama model for live extraction ablation
+Pilot uses signed OIDC JWTs with issuer, audience, tenant, role and scope
+validation; it rejects demo credentials and returns 410 for authenticated v1
+requests. Configure `HARNESS_OIDC_ISSUER`, `HARNESS_OIDC_AUDIENCE`,
+`HARNESS_OIDC_JWK_SET_URI` and the browser allowlists for your deployment.
+Local JWT tests do not certify your IdP integration or permission grants.
+See [ADR-0009](docs/adr/0009-oidc-identities-and-local-demo-access.md).
 
-## Quick start (Zero LLM required)
+### Read-only order source
 
-### 1. Build and verify offline
+V2 can use a read-only pilot adapter with explicit endpoint/host configuration.
+Its ten-second deadline covers response headers and body, with a 1 MB streaming
+limit and no redirects or synthetic fallback. Refundable balance is explicit:
+missing is unknown, zero is a known zero, and invalid precision or excess over
+order amount is rejected. Local demo continues to use synthetic fixtures.
+`GET /api/v2/adapters/status` returns metadata without probing orders or secrets.
+
+### Cases, evidence and independent review
+
+V2 case queues apply status, exact order/assignee, risk, complaint, city and
+station filters in SQL before pagination. Material bodies remain separate from
+metadata. Typed bounded requests reject invalid input before writes.
+Case creators and decision authors cannot claim, approve or receive their own
+review; missing legacy authorship requires a fresh analysis. Export uses
+`POST /api/v2/cases/{id}/export`, records an audit receipt and executes no payment;
+GET returns 405. See [ADR-0007](docs/adr/0007-independent-case-and-decision-reviewers.md).
+
+### Durable execution queue
+
+V2 analysis freezes order evidence and runtime inputs before enqueueing.
+Idempotency, bounded capacity, fencing and absolute deadlines guard durable
+execution state. Heartbeat, deadline and recovery schedulers are independent;
+completion locks the execution row to avoid normal heartbeat conflicts.
+Recovery advances a bounded global cursor across tenants and active tasks.
+Decisions record the submitting identity and remain advisory, NOT_EXECUTED.
+See [ADR-0008](docs/adr/0008-durable-queue-with-independent-schedulers.md).
+
+### Lightweight record lists
+
+Record list queries read explicit metadata projections rather than frozen
+runtime bundles. Updates persist the full record and its summary atomically;
+V8/V9 migrate and backfill existing rows. Summary projections preserve the
+policy, knowledge and evidence scopes needed for authorization, and exclude
+prompt/document bodies. Details require separate authorized reads. See
+[ADR-0010](docs/adr/0010-explicit-record-list-projections.md).
+
+### Versioned policy publication
+
+V2 policy candidates validate canonical compensation methods, formulas,
+amount bounds, currency and effective windows. Publication requires another
+identity; the creator cannot publish their own version. Published rules are
+immutable, and demo defaults are seeded at startup rather than GET requests.
+Pilot starts without synthetic policy seeds. Policy lists use summaries;
+fetch an authorized version detail to read its rules. This workflow authorizes
+advisory policy use and executes no funds.
+
+### Reviewed knowledge versions
+
+Knowledge ingestion creates scoped candidates with content hashes and versioned
+chunks. Another identity validates publication; published content cannot be
+edited in place. Search/citation reads preserve tenant and scope boundaries and
+return exact version/hash references. Knowledge is prompt-injection-sensitive
+reference data, never authority to change system instructions or payment rules.
+Lists contain metadata; authorized version details contain the source text.
+
+### Frozen runtime configurations
+
+Runtime versions freeze policy/knowledge/model/task settings and their hashes.
+Publication requires an independent identity and matching passing evaluation
+evidence on a gate-eligible, server-derived dataset whose author and evaluation
+initiator also differ from the config author (see the
+[v2 API notes](docs/api/v2.md#runtime-publication-gate)). Published configs and
+routes can be withdrawn. Pilot execution fails closed without a published version. One bundle
+is limited to 512 KiB. Configuration visibility includes every embedded knowledge
+scope as well as policy scope; a broad policy cannot expose a restricted document.
+Lists return scope-preserving metadata, and authorized detail reads return the
+full immutable bundle. Deterministic mode requires no provider request.
+
+### Reproducible structured evaluation (breaking score contract)
+
+V2 evaluations freeze datasets, runtime bundles and scorer hashes, compare
+exact expected fields against a deterministic baseline, and mark missing labels
+NOT_MEASURED. These scores must not be compared with legacy lexical scores.
+Blind datasets require reviewed labels; execution completion alone cannot pass
+the publication gate. Scope checks cover runtime knowledge and every sample.
+Restarted runs fail explicitly with frozen-snapshot retry guidance. GET does not
+seed defaults; synthetic evaluation datasets are initialized only in demo startup.
+Result pages preserve sample IDs, execution status and both candidate/baseline
+score summaries, including NOT_MEASURED and gate failure codes. They omit full
+evidence and execution bodies; V10 backfills this metadata for existing results.
+
+### Verified feedback lifecycle
+
+Structured feedback binds the exact case, decision version, evidence and
+runtime. Case scope authorization is unconditional, including detail reads.
+Another identity verifies a correction before it can become an evaluation
+label. Confirmed feedback can link a fix and a passing frozen regression run;
+raw votes never become blind-set ground truth. List summaries omit corrections;
+`GET /api/v2/feedback/{id}` requires authorization to view the full correction.
+
+### Scoped operations and audit
+
+Operations metrics count scoped rows in SQL and sample at most 1,000 explicit
+execution summaries for latency/cost. Costs remain unknown unless amount,
+currency and price version are all known; different groups are never combined.
+Audit uses an opaque timestamp/event-ID cursor with SQL scope filtering.
+These are execution observations, not decision-accuracy or business-effect claims.
+
+### Advisory exceptions
+
+A supervisor may propose a bounded, evidenced exception; another authorized
+supervisor must review it. REFUND still needs verified refundable balance,
+nonmonetary RESEND uses zero and all amounts respect the configured ceiling.
+The typed amount is a JSON number. Approval remains advisory/NOT_EXECUTED.
+The five public demo identities include one supervisor; a complete exception
+review needs a second separately configured supervisor identity, as in pilot.
+No payment channel, ledger, callback or irreversible deletion is included.
+
+### Generated API contract
+
+Authenticated `GET /api/v2/openapi` generates the contract from real routes and
+DTO constraints; tests export `harness-api/target/generated-api/openapi.v2.json`
+and check route/schema consistency. See [v2 migration notes](docs/api/v2.md).
+No handwritten OpenAPI snapshot is maintained.
+
+### Decision workbench
+
+Open `/workbench/index.html` on the configured loopback origin and explicitly
+enter a demo credential. The workbench provides server-filtered case queues,
+evidence, independent review, policy/knowledge publication, evaluation, scoped
+operations/audit and feedback verification. Versioned records fetch authorized
+details rather than treating list metadata as full content. Tokens stay only in
+memory; identity switches cancel requests and clear loaded data and forms.
+The UI uses textContent and same-origin assets, with no external scripts or
+payment/deletion controls. Run `node tools/check-workbench-state.cjs` for the
+browser-state/serialization regressions alongside Maven API verification.
+
+### Coverage verification
+
+The single core-only LINE coverage floor is `0.70` in the root POM. Normal
+`./mvnw clean verify` enforces it; the API module additionally publishes
+`target/site/jacoco-aggregate/` for cross-module exercise. These reports use
+different denominators and must not be presented as interchangeable quality or
+production-readiness claims. See [CONTRIBUTING](CONTRIBUTING.md).
+
+### Product review and operations
+
+The [PRD](docs/prd/delivery-harness-product-prd.md) remains a joint-review proposal
+from the separate documentation PR #36. See the [implementation/acceptance map](docs/implementation/delivery-harness-prd-implementation.md),
+[v2 contract notes](docs/api/v2.md) and [pilot runbook](docs/operations/pilot-runbook.md).
+M1–M3 code verification is separate from real IdP/source/PostgreSQL/business
+acceptance. FR-14 funds execution and actual retention deletion require a new
+project after M2 acceptance. Draft PRs do not authorize merging or deployment.
+
+### v0.3 harness benchmark (demo only)
+
+A deterministic single-case benchmark runs alongside the platform. It is
+registered only outside pilot mode (`@BenchmarkApi`): its cases live in an
+unscoped, bounded `InMemoryCaseStore` with no tenant or city/station checks and a
+caller-supplied `unauthenticated_operator_id`. Scoped production cases stay on
+`/api/v2`.
+
+- **Three-valued evidence**: closed `EV-*` snapshots built on
+  `sealed interface EvidenceValue<T>` (`Known` / `Unknown` / `Invalid`), with
+  canonical SHA-256 hashing ([ADR-0012](docs/adr/0012-three-valued-evidence-ledger-and-deterministic-snapshots.md)).
+- **Single-source `PolicyBundle`**: `policy-v1.0.0.json` is validated at startup
+  and holds the benchmark's intervals, thresholds and routing matrix
+  ([ADR-0013](docs/adr/0013-single-source-policy-bundle.md)). It is separate
+  from the versioned platform policies under `/api/v2/policies`.
+- **Deterministic residual diagnosis**: five candidate delay factors with
+  explicit `MULTI_FACTOR` / `UNDETERMINED` outcomes and no automatic liability.
+- **Minimum probabilistic surface**: optional extraction
+  (`harness.llm.extraction.enabled=false` by default) yields only unconfirmed
+  `ClaimedFact`s, which `ClaimVerifier` checks deterministically and
+  `SingleSourcePolicyEngine` never receives
+  ([ADR-0011](docs/adr/0011-minimum-probabilistic-surface-and-unidirectional-routing.md)).
+- **Endpoints**: `/api/cases`, `/api/policies/active` and, with the `demo`
+  profile, `/api/demo/fixtures`. Like every `/api/**` route they need an
+  explicit demo bearer token.
+- **Single-case page**: `/index.html` takes the bearer token in a password field,
+  keeps it in page memory only, and renders through text nodes under the
+  platform CSP.
+
+Run the frozen IM corpus ablation against a real model (`@Tag("live-llm")`,
+excluded from offline CI):
 
 ```bash
-./mvnw clean verify
-```
-
-### 2. Start the API and Single-Case Workbench in `demo` profile
-
-```bash
-./mvnw -pl harness-api -am package
-java -jar harness-api/target/harness-api.jar --spring.profiles.active=demo
-```
-
-Open `http://127.0.0.1:8080` in your browser to use the embedded Single-Case Workbench with the 13 synthetic contract fixtures.
-
-Without `--spring.profiles.active=demo`, `/api/demo/fixtures` is not mounted (`404`), while `/api/cases` still runs cleanly against known orders and returns `404` for unknown order IDs instead of fabricating fake orders.
-
-### 3. Call the unified Case API
-
-Create and evaluate a case (idempotent via `Idempotency-Key`):
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --header 'Idempotency-Key: demo-req-001' \
-  --data '{"order_id":"ORD-MERCHANT-01","complaint_type":"OVERTIME"}' \
-  http://127.0.0.1:8080/api/cases
-```
-
-Submit human evidence attestation (e.g. for a `DAMAGED` case waiting on `DAMAGE_LEVEL`):
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"evidence_type":"DAMAGE_LEVEL","value":"PARTIAL","operator_id":"reviewer-01","expected_case_version":1}' \
-  http://127.0.0.1:8080/api/cases/{caseId}/attestations
-```
-
-Submit a structured human decision bound to the latest `run_id` and `expected_case_version`:
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"run_id":"RUN-1","expected_case_version":1,"action":"ACCEPT","operator_id":"reviewer-01"}' \
-  http://127.0.0.1:8080/api/cases/{caseId}/decisions
-```
-
-Record an external execution receipt (required before customer communication wording switches to "completed"):
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"run_id":"RUN-1","expected_case_version":2,"action":"RECORD_EXECUTION_RECEIPT","operator_id":"ops-01","external_receipt_id":"PAY-20260901-0001"}' \
-  http://127.0.0.1:8080/api/cases/{caseId}/decisions
-```
-
-Every response uses the `HarnessResponse` envelope (`{ code, message, data, traceId }`) and mirrors `traceId` in the `X-Trace-Id` header.
-
-### Release artifacts
-
-Tagged releases publish the runnable `harness-api` fat JAR and a SHA-256 checksum as GitHub Release assets. This is a 0.x release: the HTTP surface and response fields may change without a major-version bump. Pin a tag if you depend on the response shape.
-
-## API surface
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/` (`/index.html`) | Embedded zero-build Single-Case Workbench |
-| `POST` | `/api/cases` | Create and evaluate a case (`Idempotency-Key` supported; unknown `order_id` returns `404`; duplicate open case returns `409`) |
-| `GET` | `/api/cases` | List recent cases (`limit` 1..200) |
-| `GET` | `/api/cases/{caseId}` | Fetch a case with its immutable snapshot, runs, and decisions |
-| `POST` | `/api/cases/{caseId}/attestations` | Append a human-attested `EV-HUMAN-*` evidence record and trigger a fresh `AssessmentRun` |
-| `POST` | `/api/cases/{caseId}/decisions` | Submit a structured `HumanDecision` (`ACCEPT`, `OVERRIDE`, `REQUEST_EVIDENCE`, `ESCALATE`, `RETURN_TO_REVIEW`, `APPROVE`, `REJECT_CLOSE`, `RECORD_EXECUTION_RECEIPT`, `CLOSE`, `REOPEN`) |
-| `GET` | `/api/policies/active` | Inspect the active validated `PolicyBundle`, SHA-256 hash, and rendered rule descriptions |
-| `GET` | `/api/observe/traces/{traceId}` | Read a recorded trace |
-| `GET` | `/api/observe/traces` | List recent traces (`limit` 1..100) |
-| `GET` | `/api/observe/metrics` | Read in-memory operational counters and timings |
-| `GET` | `/api/demo/fixtures` | List the 13 synthetic contract fixtures (mounted **only** when `--spring.profiles.active=demo`) |
-
-## Configuration
-
-Copy `.env.example` for a local reference. Spring reads the following environment variables directly:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `SERVER_ADDRESS` | `127.0.0.1` | Bind address; set `0.0.0.0` only in an intentionally isolated deployment |
-| `SERVER_PORT` | `8080` | API and Workbench port |
-| `HARNESS_LLM_EXTRACTION_ENABLED` | `false` | Opt-in toggle for optional LLM IM signal extraction (disabled by default) |
-| `HARNESS_LLM_ENDPOINT` | `http://localhost:11434` | OpenAI-compatible base URL (used only when extraction is enabled) |
-| `HARNESS_LLM_MODEL` | `qwen2.5:7b` | Model name for optional extraction / live ablation |
-| `HARNESS_LLM_API_KEY` | empty | Optional bearer token; never commit a real value |
-| `HARNESS_LLM_TIMEOUT_SECONDS` | `15` | Model read timeout (aligned with `application.yml`) |
-| `HARNESS_MAX_CASES` | `500` | Capacity bound of the in-memory `CaseStore` |
-| `HARNESS_MAX_TRACES` | `500` | Size of the in-memory trace ring |
-
-Policy limits (`approvalThreshold`, `escalationCap`, intervals, staleness limits, and attribution thresholds) live exclusively in [`policy-v1.0.0.json`](harness-core/src/main/resources/policy/policy-v1.0.0.json) — there are no duplicate environment-variable caps.
-
-## Testing & Live-LLM Ablation
-
-Run the full offline test suite, architecture boundary guards, XSS/CSP checks, format check, and JaCoCo coverage gate:
-
-```bash
-./tools/check-format.sh
-./mvnw clean verify
-```
-
-The offline suite contains **78 tests** (`harness-common`: 9, `harness-core`: 57, `harness-api`: 12) and requires no Ollama or Docker daemon. Key guarantees enforced in tests:
-
-- Bytecode architecture guards (`ArchitectureGuardTest`, `ApiArchitectureGuardTest`) verify `com.delivery.harness.policy` never references `extraction` or `llm`, `evidence` never leaks test labels, and controllers stay clean.
-- `OfflineAblationSmokeTest` evaluates the deterministic ~20-line `RegexSignalBaseline` against the frozen hand-crafted `dev`/`holdout` IM corpus via an independent scorer (`IndependentEvalScorer`) and generates a pipeline-smoke report explicitly tagged `PIPELINE_SMOKE_ONLY`.
-- `WorkbenchStaticTest` verifies strict CSP headers and zero `innerHTML`/inline-script sinks in the static UI.
-
-### Optional: Run Live-LLM Ablation (CLI)
-
-To benchmark a real OpenAI-compatible model (e.g. local Ollama `qwen2.5:7b`) head-to-head against the deterministic regex baseline on the frozen holdout set (`@Tag("live-llm")`, excluded from offline CI):
-
-```bash
-docker compose up -d ollama
-docker compose exec ollama ollama pull qwen2.5:7b
-HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
-
 HARNESS_LLM_ENDPOINT=http://localhost:11434 \
 HARNESS_LLM_MODEL=qwen2.5:7b \
 ./mvnw -pl harness-core test -Dgroups=live-llm -Dtest=LiveLlmAblationReportTest
 ```
 
-The Markdown report is written to `harness-core/target/ablation-live-report.md` and includes the [ADR-0005](docs/adr/0005-minimum-probabilistic-surface-and-unidirectional-routing.md) exit criterion: if an LLM does not beat the regex baseline on holdout F1 with zero false-positive exemption signals, leave `harness.llm.extraction.enabled=false`.
+The report is written to `harness-core/target/ablation-live-report.md`. If the
+model does not beat `RegexSignalBaseline` on holdout F1 with zero false-positive
+exemption signals, keep extraction disabled (ADR-0011 exit clause).
 
-## Architecture Decision Records
+## Architecture
 
-See [`docs/adr/README.md`](docs/adr/README.md) for the complete index:
+```mermaid
+flowchart LR
+    Client["REST client"] --> Api["harness-api\nHTTP, validation, tracing"]
+    Api --> Agent["core: agent\nfixed workflows"]
+    Agent --> Tools["core: tool\nsynthetic business tools"]
+    Agent --> Knowledge["core: knowledge\nseeded rules, lexical retrieval"]
+    Agent --> LLM["core: llm\nOpenAI-compatible client"]
+    Agent --> Observe["core: observe\ntrace and metrics"]
+    LLM --> Model["Ollama or compatible endpoint"]
+    Api --> Eval["core: eval"]
+    Eval --> Agent
+```
 
-- [ADR-0001](docs/adr/0001-delete-unreachable-code-before-adding-features.md) — Delete unreachable code before adding features
-- [ADR-0002](docs/adr/0002-rule-engine-owns-the-compensation-amount.md) — Rule engine owns the compensation amount (amended by ADR-0005)
-- [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md) — No vector retrieval at this corpus size *(Retired)*
-- [ADR-0004](docs/adr/0004-three-maven-modules-instead-of-nine.md) — Three Maven modules instead of nine
-- [ADR-0005](docs/adr/0005-minimum-probabilistic-surface-and-unidirectional-routing.md) — Minimum probabilistic surface and unidirectional LLM routing
-- [ADR-0006](docs/adr/0006-three-valued-evidence-ledger-and-deterministic-snapshots.md) — Three-valued evidence ledger and deterministic snapshots
-- [ADR-0007](docs/adr/0007-single-source-policy-bundle.md) — Single-source `PolicyBundle` owns all policy parameters
+Legacy v1 workflows run synchronously for local demo. V2 uses the durable execution queue with frozen inputs. Default demo uses in-memory H2 and deterministic runtime; pilot requires persistent JDBC, OIDC and a configured read-only order source.
+
+## Modules
+
+| Module | Responsibility |
+| --- | --- |
+| `harness-common` | DTOs, exceptions, JSON/text helpers, and trace context. No internal dependencies. |
+| `harness-core` | Everything that decides something: `agent` (workflows, timeline, guardrails, formatting), `tool` (synthetic business tools), `llm` (model routing and transport), `knowledge` (seeded rules and cases, lexical retrieval), `eval` (cases, runs, scorers), `observe` (traces, metrics, feedback). |
+| `harness-api` | Executable Spring Boot application: controllers, validation, exception mapping, request tracing. |
+| `llm-inference` | Pinned Ollama container definition and smoke-test script. |
+
+Java packages are unchanged — `com.delivery.harness.{agent,tool,llm,knowledge,eval,observe}` still exist and still mean the same thing. Only the Maven build boundary moved; see [ADR-0004](docs/adr/0004-three-maven-modules-instead-of-nine.md).
+
+## Prerequisites
+
+- JDK 17 or newer
+- Maven 3.6.3 or newer, or the included Maven Wrapper
+- Docker with Compose support, only when running Ollama in a container
+- Enough memory for the model you choose; `qwen2.5:7b` is the default example
+
+## Quick start
+
+### 1. Start a local model
+
+If Ollama already runs on your machine, skip the first command.
+
+```bash
+docker compose up -d ollama
+docker compose exec ollama ollama pull qwen2.5:7b
+```
+
+The Compose port binds to `127.0.0.1` only. Model weights are downloaded separately and are not part of this repository or its MIT license.
+
+### 2. Build and test
+
+```bash
+./mvnw clean verify
+```
+
+### 3. Run the API
+
+```bash
+./mvnw -pl harness-api -am package
+java -jar harness-api/target/harness-api.jar
+```
+
+The API listens on `http://localhost:8080` by default.
+
+### Release artifacts
+
+Tagged releases publish the runnable `harness-api` fat JAR and a SHA-256
+checksum as GitHub Release assets. This is a 0.x release: the HTTP surface
+and response fields may change without a major-version bump. Pin a tag if you
+depend on the response shape.
+
+### 4. Call a workflow
+
+```bash
+curl --fail-with-body \
+  -H 'Authorization: Bearer demo-agent-token' \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"order_id":"DEMO-001"}' \
+  http://localhost:8080/api/v1/analyze/abnormal-order
+```
+
+Compensation suggestion:
+
+```bash
+curl --fail-with-body \
+  -H 'Authorization: Bearer demo-agent-token' \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"order_id":"DEMO-002","complaint_type":"OVERTIME"}' \
+  http://localhost:8080/api/v1/analyze/compensation
+```
+
+For `DAMAGED` complaints, pass `"damage_level":"FULL"` or
+`"damage_level":"PARTIAL"`. Without evidence, the policy returns zero and
+requires manual review; the rule engine, not the model, remains authoritative.
+
+Every response uses an envelope similar to:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "executionId": "...",
+    "traceId": "...",
+    "status": "SUCCESS",
+    "steps": []
+  },
+  "traceId": "..."
+}
+```
+
+The same trace ID is returned in the `X-Trace-Id` response header.
+
+## API surface
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/analyze/abnormal-order` | Run abnormal-order analysis |
+| `POST` | `/api/v1/analyze/compensation` | Generate a compensation suggestion |
+| `POST` | `/api/v1/knowledge/ingest` | Ingest and chunk an in-memory document |
+| `POST` | `/api/v1/knowledge/search` | Search in-memory rules, documents, and cases |
+| `POST` | `/api/v1/eval/cases` | Add an in-memory evaluation case |
+| `GET` | `/api/v1/eval/cases` | List evaluation cases |
+| `POST` | `/api/v1/eval/run` | Run selected cases synchronously |
+| `GET` | `/api/v1/eval/run/{runId}` | Read an evaluation run |
+| `GET` | `/api/v1/eval/run/{runId}/results` | Read evaluation results |
+| `GET` | `/api/v1/observe/trace/{traceId}` | Read a recorded trace, when populated |
+| `GET` | `/api/v1/observe/traces` | List recorded traces, when populated |
+| `GET` | `/api/v1/observe/metrics` | Read in-memory metrics, when populated |
+| `POST` | `/api/v1/observe/feedback` | Store feedback in memory |
+| `GET` | `/api/v1/observe/feedback` | List in-memory feedback |
+
+## Configuration
+
+Copy `.env.example` if you want a local reference. Spring reads the following environment variables directly:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SERVER_ADDRESS` | `127.0.0.1` | Bind address; set `0.0.0.0` only for an intentionally isolated remote/container deployment |
+| `SERVER_PORT` | `8080` | API port |
+| `HARNESS_LLM_ENDPOINT` | `http://localhost:11434` | OpenAI-compatible base URL |
+| `HARNESS_LLM_MODEL` | `qwen2.5:7b` | Default model name |
+| `HARNESS_LLM_API_KEY` | empty | Optional bearer token; never commit a real value |
+| `HARNESS_LLM_TIMEOUT_SECONDS` | `120` | Total model call deadline including body and retries |
+| `HARNESS_MAX_COMPENSATION_AMOUNT` | `50.0` | Advisory maximum amount check |
+
+Additional Spring properties, settable in `application.yml` or as `--property=value`:
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `harness.review.approval-threshold` | `10.0` | Payouts at or above this value require a human approver |
+| `harness.knowledge.seed.enabled` | `true` | Load the synthetic rule and case base at startup |
+| `harness.eval.seed.enabled` | `true` | Load the starter evaluation cases at startup |
+| `harness.observe.max-traces` | `500` | Size of the in-memory trace ring |
+| `harness.observe.max-feedback` | `1000` | Maximum in-memory feedback records |
+| `harness.observe.max-tool-invocations` | `2000` | Maximum recent tool invocation records |
+| `harness.eval.max-cases` | `1000` | Maximum in-memory evaluation cases |
+| `harness.eval.max-runs` | `200` | Maximum retained in-memory evaluation runs |
+| `harness.knowledge.max-documents` | `1000` | Maximum in-memory knowledge documents |
+| `harness.knowledge.max-chunks` | `5000` | Maximum in-memory knowledge chunks |
+
+Run the model smoke test after installing the configured model:
+
+```bash
+HARNESS_LLM_MODEL=qwen2.5:7b ./llm-inference/smoke-test.sh
+```
+
+## Testing
+
+```bash
+./mvnw clean verify
+```
+
+Unit and API regression tests cover both workflows. Both workflows are covered end to end against a stub model transport, so no test requires Ollama or a Docker daemon. The load-bearing test is `buildsDifferentEvidenceForDifferentOrders`: it asserts that two different orders produce two different prompts, which is the property every other measurement depends on. CI runs the same Maven verification on every push and pull request.
 
 ## Security and data handling
 
-- **No authentication or RBAC**: `operator_id` on attestation and decision endpoints is caller-supplied and explicitly tagged as `unauthenticated_operator_id`. Put an authenticating gateway/IdP in front of the service before any shared deployment.
-- **No automatic payout execution**: `APPROVED_PENDING_EXECUTION` only records approval intent; an external execution receipt must be posted via `RECORD_EXECUTION_RECEIPT` before customer drafts use completed wording.
-- **Prompt-injection trust boundary**: IM messages are untrusted text. `UnstructuredExtractor` runs a deterministic pre-scan, `ClaimVerifier` verifies offsets/quotes/metadata speaker roles, and `SingleSourcePolicyEngine` is architecturally isolated from extracted claims.
-- **Strict frontend CSP & zero `innerHTML`**: Static UI assets enforce `default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'self'` and render exclusively via `textContent` / DOM text nodes.
+- APIs require explicit bearer identities and enforce tenant/role/scope. Anonymous failures use bounded throttling. Organizational permission grants and production quota policy require deployment review.
+- Tool data and addresses are synthetic examples; do not replace them with real personal data in a public deployment.
+- Ingested documents can influence prompts. Treat knowledge ingestion as a prompt-injection trust boundary.
+- The advisory checker detects a small set of phrases and amount conditions; it is not a policy engine.
+- Legacy memory stores are bounded demonstration components. V2 audit and records use the configured database; backups and lifecycle governance require deployment review. Actual retention deletion is excluded until a separate project after M2 acceptance.
 - Review [SECURITY.md](SECURITY.md) before reporting a vulnerability or deploying a derivative.
 
 ## Known limitations
 
-- `SyntheticEvidenceSource` returns deterministic synthetic contract fixtures rather than calling live delivery systems.
-- `InMemoryCaseStore`, traces, and metrics are bounded in-memory stores cleared on restart; no database persistence layer is bundled.
-- `operator_id` is unauthenticated (`unauthenticated_operator_id`); supervisor approval (`APPROVE`) enforces workflow state and `exception_reason` rules but does not verify caller roles.
-- The offline IM evaluation corpus is a small frozen hand-crafted benchmark (`dev` + `holdout`) meant for honest regression and ablation comparison — real production accuracy claims require a labelled sample from production traffic.
-- No live-LLM accuracy or latency numbers are claimed in this README; run `LiveLlmAblationReportTest` against your target model to measure them directly.
+- Default demo tools return synthetic data. Pilot has a bounded read-only order adapter; ETA/capacity remain reference fixtures and do not establish historical responsibility. Real-source acceptance is separate.
+- Retrieval is lexical term overlap, not semantic search. CJK text is split on whitespace and punctuation rather than segmented, so recall depends on the query and the rule sharing a phrase ([ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md)).
+- V2 cases, snapshots, reviews, versions, evaluations, feedback and audit use JDBC. Default H2 is in memory and loses state on restart; configure and validate persistent storage. Legacy v1 knowledge/evaluation/trace components remain in memory.
+- Legacy v1 scores are lexical; v2 uses versioned exact-field expectations and explicit NOT_MEASURED. Synthetic regression fixtures cannot establish business accuracy; that requires independently labelled real traffic.
+- Legacy v1 modelVersion/promptVersion are metadata labels. V2 evaluation freezes the actual runtime configuration and hashes; deployment provider/model versions and real pricing still require independent validation.
+- `needs_human_review` and `approval_required` are derived from guardrail outcome, parse success, model confidence and baseline agreement. This is reporting, not authority: nothing here executes a payment.
+- Guardrails report pass/fail in workflow steps and the final output, but do not replace human review.
+- JDBC/Flyway provides the platform storage foundation. Legacy workflow knowledge, evaluation and trace stores still use memory; a configured PostgreSQL deployment requires its own migration and restore validation.
+
+## Roadmap
+
+- Validate organization IdP onboarding, revocation, key rotation and production quotas.
+- Replace mock tools with versioned adapters and contract tests.
+- Validate real PostgreSQL migration, query plans, concurrency, backup and restore.
+- Govern long-term trace, feedback and audit storage; design actual retention deletion separately after M2.
+- Validate typed outputs, policy controls and redaction against approved real source contracts.
+- Build a labelled evaluation set from real abnormal orders and measure top-1 attribution accuracy against the deterministic baseline. If the model does not beat that baseline, the model is not earning its place in the attribution path.
+- Validate reproducibility and model/provider version pinning across actual deployment upgrades.
+- Measure reviewer handling time before and after. Without it, the system cannot demonstrate that it saves anything.
+- Embedding generation and vector retrieval are deliberately **not** on this roadmap at the current corpus size; see [ADR-0003](docs/adr/0003-no-vector-retrieval-at-this-corpus-size.md) for the conditions that would reopen it.
 
 ## Contributing
 

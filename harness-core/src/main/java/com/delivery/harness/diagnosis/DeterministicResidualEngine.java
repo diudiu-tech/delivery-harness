@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
  * structured telemetry.
  *
  * <p>Uses the locked thresholds and normal-state SLA baselines from
- * {@link PolicyBundle.AttributionThresholds} (ADR-0007). Positive excesses across
+ * {@link PolicyBundle.AttributionThresholds} (ADR-0013). Positive excesses across
  * legs do not necessarily sum to {@code overtimeMinutes} because promised
  * duration contains buffer and legs may have negative residuals.
  */

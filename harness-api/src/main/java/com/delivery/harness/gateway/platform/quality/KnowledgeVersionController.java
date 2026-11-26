@@ -69,7 +69,7 @@ public class KnowledgeVersionController extends QualityAccess {
         return knowledge.create(actor.tenantId(), actor.userId(), body);
     }
 
-    @PostMapping("/knowledge/versions/{id}/{action:review|publish|withdraw}")
+    @PostMapping("/knowledge/versions/{id}/{action:review|publish}")
     public PlatformStore.Entity transitionKnowledge(
             HttpServletRequest request,
             @PathVariable @Size(max = 100) String id,
@@ -78,17 +78,32 @@ public class KnowledgeVersionController extends QualityAccess {
         Map<String, Object> body = payload.toMap();
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_PUBLISHER", "QUALITY", "ADMIN");
-        PlatformStore.Entity entity = resource(actor, KnowledgeService.KIND, id);
-        if ("withdraw".equals(action)) {
-            // Withdrawal retires the version across its whole scope.
-            authorizeCreateScope(actor, entity.data());
-        }
+        resource(actor, KnowledgeService.KIND, id);
         return knowledge.transition(
                 actor.tenantId(),
                 id,
                 actor.userId(),
                 version(body),
                 action,
+                QualityData.text(body, "reason", ""));
+    }
+
+    /** Withdrawal retires the version across its whole scope, so it needs authoring scope. */
+    @PostMapping("/knowledge/versions/{id}/withdraw")
+    public PlatformStore.Entity withdrawKnowledge(
+            HttpServletRequest request,
+            @PathVariable @Size(max = 100) String id,
+            @Valid @RequestBody QualityRequests.LifecycleRequest payload) {
+        Map<String, Object> body = payload.toMap();
+        AuthContext.Principal actor = PrincipalAccess.get(request);
+        actor.requireRole("POLICY_PUBLISHER", "QUALITY", "ADMIN");
+        authorizeCreateScope(actor, resource(actor, KnowledgeService.KIND, id).data());
+        return knowledge.transition(
+                actor.tenantId(),
+                id,
+                actor.userId(),
+                version(body),
+                "withdraw",
                 QualityData.text(body, "reason", ""));
     }
 

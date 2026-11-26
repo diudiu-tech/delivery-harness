@@ -206,6 +206,7 @@ public class ExecutionService {
                                 PlatformStore.Entity latest =
                                         tx.require(actor.tenantId(), "case", caseId);
                                 CaseService.authorize(actor, latest);
+                                CaseService.requireNotClosed(latest);
                                 CaseService.requireNoActivePayment(latest);
                                 if (latest.version()
                                         != CaseService.number(request, "expected_case_version"))
@@ -305,23 +306,12 @@ public class ExecutionService {
                                 cd.put("evidence_snapshot_id", snapshotId);
                                 cd.put("review_status", "PENDING");
                                 cd.put("payment_status", "NOT_EXECUTED");
-                                if (cd.get("review_id") != null) {
-                                    PlatformStore.Entity review =
-                                            tx.require(
-                                                    actor.tenantId(),
-                                                    "review",
-                                                    cd.get("review_id").toString());
-                                    Map<String, Object> rd = new LinkedHashMap<>(review.data());
-                                    rd.put("status", "SUPERSEDED");
-                                    tx.update(
-                                            actor.tenantId(),
-                                            "review",
-                                            review.id(),
-                                            review.version(),
-                                            rd,
-                                            actor.userId(),
-                                            "REVIEW_SUPERSEDED");
-                                }
+                                CaseService.supersedeReview(
+                                        tx,
+                                        actor,
+                                        latest,
+                                        "ANALYSIS_REQUEUED",
+                                        "REVIEW_SUPERSEDED");
                                 tx.update(
                                         actor.tenantId(),
                                         "case",

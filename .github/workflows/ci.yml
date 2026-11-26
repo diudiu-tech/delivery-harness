@@ -52,6 +52,9 @@ jobs:
 
       # JaCoCo's threshold is enforced in the verify phase, so a coverage
       # failure reports last, after the tests it depends on.
+      # PostgresMigrationSmokeTest runs here too: it starts real PostgreSQL
+      # binaries from Maven (zonky embedded-postgres), so it needs no Docker
+      # service and must never be skipped.
       - name: Build and test
         run: ./mvnw --batch-mode --no-transfer-progress clean verify
 

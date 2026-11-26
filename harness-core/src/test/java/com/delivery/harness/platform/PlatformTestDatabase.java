@@ -1,5 +1,6 @@
 package com.delivery.harness.platform;
 
+import com.delivery.harness.platform.store.LegacyV3ChecksumCallback;
 import com.delivery.harness.platform.store.PlatformStore;
 
 import org.flywaydb.core.Flyway;
@@ -23,6 +24,11 @@ public final class PlatformTestDatabase {
     }
 
     public static void migrate(DataSource source) {
-        Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+        Flyway.configure()
+                .dataSource(source)
+                .locations("classpath:db/migration")
+                .callbacks(new LegacyV3ChecksumCallback())
+                .load()
+                .migrate();
     }
 }

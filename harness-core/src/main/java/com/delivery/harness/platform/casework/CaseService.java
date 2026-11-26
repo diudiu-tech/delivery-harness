@@ -29,6 +29,10 @@ import java.util.UUID;
 
 @Service
 public class CaseService {
+    /** Recorded reviewer conclusions; superseding them must not rewrite what was decided. */
+    private static final Set<String> CONCLUDED_REVIEWS =
+            Set.of("APPROVED", "REJECTED", "NEEDS_EVIDENCE");
+
     @Autowired(required = false)
     private PrincipalDirectory directory;
 
@@ -208,6 +212,7 @@ public class CaseService {
                 tx -> {
                     PlatformStore.Entity c = tx.lock(actor.tenantId(), "case", caseId);
                     authorize(actor, c);
+                    requireNotClosed(c);
                     requireNoActivePayment(c);
                     if (tx.caseRecords(actor.tenantId(), "material", caseId, 100).size() >= 100)
                         throw PlatformException.conflict(
@@ -241,8 +246,9 @@ public class CaseService {
                 tx -> {
                     PlatformStore.Entity m = tx.require(actor.tenantId(), "material", materialId);
                     PlatformStore.Entity related =
-                            tx.require(actor.tenantId(), "case", text(m.data(), "case_id"));
+                            tx.lock(actor.tenantId(), "case", text(m.data(), "case_id"));
                     authorize(actor, related);
+                    requireNotClosed(related);
                     requireNoActivePayment(related);
                     if ("VERIFY".equals(action)
                             && (!Boolean.TRUE.equals(m.data().get("content_checked"))
@@ -366,7 +372,16 @@ public class CaseService {
                         if (amount instanceof Map<?, ?> money) amount = money.get("value");
                         if (amount == null) amount = decision.data().get("authoritative_amount");
                         if (amount != null) {
-                            BigDecimal monetary = new BigDecimal(amount.toString());
+                            BigDecimal monetary;
+                            try {
+                                monetary = new BigDecimal(amount.toString());
+                            } catch (NumberFormatException invalid) {
+                                throw new PlatformException(
+                                        422,
+                                        "INVALID_DECISION_AMOUNT",
+                                        "Decision amount is not a valid monetary value; run a new"
+                                                + " analysis or create an authorized exception");
+                            }
                             if (monetary.signum() < 0
                                     || monetary.compareTo(approvalCeiling) > 0
                                     || monetary.stripTrailingZeros().scale() > 2)
@@ -567,21 +582,40 @@ public class CaseService {
                 actor.userId(),
                 "EVIDENCE_SNAPSHOT_CREATED");
         data.put("evidence_snapshot_id", snapshotId);
-        if (c.data().get("review_id") != null) {
-            PlatformStore.Entity r =
-                    tx.require(actor.tenantId(), "review", c.data().get("review_id").toString());
-            Map<String, Object> rd = new LinkedHashMap<>(r.data());
-            rd.put("status", "SUPERSEDED");
-            tx.update(
-                    actor.tenantId(),
-                    "review",
-                    r.id(),
-                    r.version(),
-                    rd,
-                    actor.userId(),
-                    "APPROVAL_INVALIDATED");
-        }
+        supersedeReview(tx, actor, c, action, "APPROVAL_INVALIDATED");
         tx.update(actor.tenantId(), "case", c.id(), c.version(), data, actor.userId(), action);
+    }
+
+    /**
+     * Retires the case's current review. A concluded review keeps its APPROVED/REJECTED status as
+     * history and only gains supersession markers; open work becomes SUPERSEDED.
+     */
+    public static void supersedeReview(
+            PlatformStore.Tx tx,
+            Principal actor,
+            PlatformStore.Entity c,
+            String reason,
+            String auditAction) {
+        if (c.data().get("review_id") == null) return;
+        PlatformStore.Entity r =
+                tx.require(actor.tenantId(), "review", c.data().get("review_id").toString());
+        if ("SUPERSEDED".equals(r.data().get("status")) || r.data().get("superseded_at") != null)
+            return;
+        Map<String, Object> rd = new LinkedHashMap<>(r.data());
+        if (!CONCLUDED_REVIEWS.contains(rd.get("status"))) rd.put("status", "SUPERSEDED");
+        rd.put("superseded_at", Instant.now().toString());
+        rd.put("superseded_by", actor.userId());
+        rd.put("superseded_reason", reason);
+        tx.update(actor.tenantId(), "review", r.id(), r.version(), rd, actor.userId(), auditAction);
+    }
+
+    /** CLOSED is terminal; there is no reopen transition in the case lifecycle. */
+    public static void requireNotClosed(PlatformStore.Entity c) {
+        if ("CLOSED".equals(c.data().get("status")))
+            throw new PlatformException(
+                    409,
+                    "CASE_CLOSED",
+                    "Closed cases are read-only; open a new case for new evidence or analysis");
     }
 
     private static void requireIndependentReviewer(

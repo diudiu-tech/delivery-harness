@@ -68,6 +68,7 @@ public class ManualExceptionService {
                 tx -> {
                     PlatformStore.Entity c = tx.require(actor.tenantId(), "case", caseId);
                     CaseService.authorize(actor, c);
+                    CaseService.requireNotClosed(c);
                     if (c.version() != CaseService.number(input, "expected_case_version"))
                         throw PlatformException.conflict(
                                 "The case changed; review the latest evidence first");
@@ -143,23 +144,8 @@ public class ManualExceptionService {
                             review,
                             actor.userId(),
                             "EXCEPTION_REVIEW_CREATED");
-                    if (c.data().get("review_id") != null) {
-                        PlatformStore.Entity prior =
-                                tx.require(
-                                        actor.tenantId(),
-                                        "review",
-                                        c.data().get("review_id").toString());
-                        Map<String, Object> old = new LinkedHashMap<>(prior.data());
-                        old.put("status", "SUPERSEDED");
-                        tx.update(
-                                actor.tenantId(),
-                                "review",
-                                prior.id(),
-                                prior.version(),
-                                old,
-                                actor.userId(),
-                                "REVIEW_SUPERSEDED");
-                    }
+                    CaseService.supersedeReview(
+                            tx, actor, c, "MANUAL_EXCEPTION_PROPOSED", "REVIEW_SUPERSEDED");
                     Map<String, Object> data = new LinkedHashMap<>(c.data());
                     data.put("current_decision_id", decisionId);
                     data.put("review_id", reviewId);

@@ -126,6 +126,116 @@ class CaseServiceTest {
     }
 
     @Test
+    void closedCasesRejectMaterialChangesAndKeepTheirApprovedConclusion() {
+        var c = cases.create(agent, Map.of("order_id", "ORD-CLOSED", "complaint_type", "DAMAGED"));
+        var material = cases.addEvidence(agent, c.id(), inlineMaterial("FULL"));
+        var review = prepareDecision(c.id());
+        approve(review);
+        var approved = cases.require(agent, c.id());
+        cases.close(
+                agent,
+                c.id(),
+                Map.of("expected_version", approved.version(), "reason", "handled externally"));
+        var closed = cases.require(agent, c.id());
+        var added =
+                assertThrows(
+                        PlatformException.class,
+                        () -> cases.addEvidence(agent, c.id(), inlineMaterial("PARTIAL")));
+        var reviewed =
+                assertThrows(
+                        PlatformException.class,
+                        () ->
+                                cases.reviewMaterial(
+                                        reviewer,
+                                        material.id(),
+                                        Map.of(
+                                                "expected_version",
+                                                1,
+                                                "action",
+                                                "VERIFY",
+                                                "reason",
+                                                "late inspection")));
+        for (PlatformException failure : List.of(added, reviewed)) {
+            assertEquals(409, failure.status());
+            assertEquals("CASE_CLOSED", failure.code());
+        }
+        var after = cases.require(agent, c.id());
+        assertEquals(closed.version(), after.version());
+        assertEquals("CLOSED", after.data().get("status"));
+        assertEquals("handled externally", after.data().get("close_reason"));
+        assertEquals("APPROVED", store.require("t", "review", review.id()).data().get("status"));
+        assertEquals(1, store.list("t", "material").size());
+        assertEquals(
+                "UPLOADED", store.require("t", "material", material.id()).data().get("status"));
+    }
+
+    @Test
+    void evidenceAfterApprovalKeepsTheApprovedReviewAsMarkedHistory() {
+        var c = cases.create(agent, Map.of("order_id", "ORD-HISTORY", "complaint_type", "DAMAGED"));
+        var review = prepareDecision(c.id());
+        approve(review);
+        cases.addEvidence(agent, c.id(), inlineMaterial("FULL"));
+        assertEquals("NEEDS_EVIDENCE", cases.require(agent, c.id()).data().get("status"));
+        var history = store.require("t", "review", review.id()).data();
+        assertEquals("APPROVED", history.get("status"));
+        assertEquals("MATERIAL_ADDED", history.get("superseded_reason"));
+        assertEquals(agent.userId(), history.get("superseded_by"));
+        assertTrue(history.get("superseded_at") != null);
+    }
+
+    @Test
+    void malformedDecisionAmountIsASemanticFailureNotAServerError() {
+        var c = cases.create(agent, Map.of("order_id", "ORD-AMOUNT", "complaint_type", "OVERTIME"));
+        var review = prepareDecision(c.id(), agent.userId(), "five yuan");
+        var claimed = cases.claim(reviewer, review.id(), review.version());
+        var current = cases.require(reviewer, c.id());
+        var failure =
+                assertThrows(
+                        PlatformException.class,
+                        () ->
+                                cases.act(
+                                        reviewer,
+                                        review.id(),
+                                        Map.of(
+                                                "expected_version",
+                                                claimed.version(),
+                                                "action",
+                                                "APPROVE",
+                                                "reason",
+                                                "malformed",
+                                                "decision_id",
+                                                "decision-1",
+                                                "decision_version",
+                                                1,
+                                                "evidence_snapshot_id",
+                                                current.data().get("evidence_snapshot_id"))));
+        assertEquals(422, failure.status());
+        assertEquals("INVALID_DECISION_AMOUNT", failure.code());
+        assertEquals("IN_REVIEW", store.require("t", "review", review.id()).data().get("status"));
+    }
+
+    private void approve(PlatformStore.Entity review) {
+        var claimed = cases.claim(reviewer, review.id(), review.version());
+        var current = cases.require(reviewer, review.data().get("case_id").toString());
+        cases.act(
+                reviewer,
+                review.id(),
+                Map.of(
+                        "expected_version",
+                        claimed.version(),
+                        "action",
+                        "APPROVE",
+                        "reason",
+                        "confirmed evidence",
+                        "decision_id",
+                        "decision-1",
+                        "decision_version",
+                        1,
+                        "evidence_snapshot_id",
+                        current.data().get("evidence_snapshot_id")));
+    }
+
+    @Test
     void damageMaterialNeedsIndependentVerification() {
         var c = cases.create(agent, Map.of("order_id", "ORD-DAMAGE", "complaint_type", "DAMAGED"));
         var m = cases.addEvidence(agent, c.id(), inlineMaterial("FULL"));
@@ -547,6 +657,10 @@ class CaseServiceTest {
     }
 
     private PlatformStore.Entity prepareDecision(String caseId, String creator) {
+        return prepareDecision(caseId, creator, 5);
+    }
+
+    private PlatformStore.Entity prepareDecision(String caseId, String creator, Object amount) {
         var c = store.require("t", "case", caseId);
         String snapshot = c.data().get("evidence_snapshot_id").toString();
         Map<String, Object> decision =
@@ -559,7 +673,7 @@ class CaseServiceTest {
                                 "decision_status",
                                 "DETERMINED",
                                 "amount",
-                                5));
+                                amount));
         if (creator != null) decision.put("created_by", creator);
         store.create("t", "decision", "decision-1", decision, "worker", "DECISION");
         var review =

@@ -30,6 +30,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PolicyService {
     public static final String KIND = "policy";
+    private static final String PUBLICATION_LOCK = "publication_lock";
     private final PlatformStore store;
     private final RuleBaseService ruleBase;
 
@@ -92,6 +93,15 @@ public class PolicyService {
             throw new IllegalArgumentException("Pilot supports CNY only");
         }
         validateTime(data);
+        List<String> superseded = supersededIds(data);
+        if (superseded.size() > 20) {
+            throw new IllegalArgumentException("At most 20 superseded policies per draft");
+        }
+        for (String supersededId : superseded) {
+            if (store.get(tenant, KIND, supersededId).isEmpty()) {
+                throw new PlatformException(404, "NOT_FOUND", "Superseded policy not found");
+            }
+        }
         return store.create(
                 tenant, KIND, UUID.randomUUID().toString(), data, actor, "POLICY_DRAFT_CREATED");
     }
@@ -259,6 +269,7 @@ public class PolicyService {
                                 "SEPARATION_OF_DUTIES",
                                 "Policy publisher must differ from policy author");
                     }
+                    supersedeOverlaps(tx, tenant, entity, actor);
                     Map<String, Object> next = QualityData.copy(entity.data());
                     List<Map<String, Object>> rules = ruleMaps(next.get("rules"));
                     rules.forEach(
@@ -286,11 +297,132 @@ public class PolicyService {
                 });
     }
 
+    /**
+     * At most one published policy may cover a scope, effective instant and compensation rule
+     * interval. Replacements must explicitly declare the published versions they supersede; a
+     * superseded version stays resolvable for runtime configurations that already pin it.
+     */
+    private void supersedeOverlaps(
+            PlatformStore.Tx tx, String tenant, PlatformStore.Entity entity, String actor) {
+        // Serializes publications within a tenant so concurrent overlapping drafts cannot both
+        // pass the check.
+        if (tx.getForUpdate(tenant, PUBLICATION_LOCK, "policy").isEmpty()) {
+            tx.create(
+                    tenant,
+                    PUBLICATION_LOCK,
+                    "policy",
+                    Map.of("purpose", "serialize policy publication"),
+                    actor,
+                    "POLICY_PUBLICATION_LOCK_CREATED");
+        }
+        Set<String> declared = new HashSet<>(supersededIds(entity.data()));
+        List<Map<String, Object>> conflicts = new ArrayList<>();
+        String cursor = "";
+        while (true) {
+            List<PlatformStore.Entity> window =
+                    tx.query(tenant, KIND, null, Set.of(), "PUBLISHED", cursor, 100);
+            for (PlatformStore.Entity other : window) {
+                if (other.id().equals(entity.id()) || declared.contains(other.id())) {
+                    continue;
+                }
+                conflicts.addAll(publicationConflicts(entity, other));
+            }
+            if (window.size() < 100) {
+                break;
+            }
+            cursor = window.get(window.size() - 1).id();
+        }
+        if (!conflicts.isEmpty()) {
+            throw new PlatformException(
+                    409,
+                    "POLICY_OVERLAP",
+                    "Published policies already cover this scope, time and rule interval; declare"
+                            + " supersedes_policy_ids or narrow the draft: "
+                            + JsonUtil.toJson(
+                                    conflicts.subList(0, Math.min(conflicts.size(), 20))));
+        }
+        for (String supersededId : declared) {
+            PlatformStore.Entity previous = tx.get(tenant, KIND, supersededId).orElse(null);
+            if (previous == null || !"PUBLISHED".equals(previous.data().get("state"))) {
+                throw PlatformException.conflict(
+                        "A superseded policy must currently be published: " + supersededId);
+            }
+            Map<String, Object> data = QualityData.copy(previous.data());
+            data.put("state", "SUPERSEDED");
+            data.put("superseded_by", actor);
+            data.put("superseded_at", Instant.now().toString());
+            data.put("superseded_by_version", entity.id());
+            tx.update(
+                    tenant,
+                    KIND,
+                    supersededId,
+                    previous.version(),
+                    data,
+                    actor,
+                    "POLICY_SUPERSEDED");
+        }
+    }
+
+    static List<String> supersededIds(Map<String, Object> data) {
+        return QualityData.strings(data.get("supersedes_policy_ids"));
+    }
+
+    private static List<Map<String, Object>> publicationConflicts(
+            PlatformStore.Entity draft, PlatformStore.Entity published) {
+        List<Map<String, Object>> conflicts = new ArrayList<>();
+        if (!scopesIntersect(draft.data(), published.data(), "city_codes")
+                || !scopesIntersect(draft.data(), published.data(), "station_ids")
+                || !windowsIntersect(draft.data(), published.data())) {
+            return conflicts;
+        }
+        for (Map<String, Object> rule : ruleMaps(draft.data().get("rules"))) {
+            for (Map<String, Object> other : ruleMaps(published.data().get("rules"))) {
+                if (overlap(rule, other)) {
+                    conflicts.add(
+                            Map.of(
+                                    "rule_id",
+                                    QualityData.text(rule, "ruleId", ""),
+                                    "conflicting_policy_id",
+                                    published.id(),
+                                    "conflicting_rule_id",
+                                    QualityData.text(other, "ruleId", "")));
+                }
+            }
+        }
+        return conflicts;
+    }
+
+    private static boolean scopesIntersect(
+            Map<String, Object> a, Map<String, Object> b, String key) {
+        List<String> left = QualityData.strings(a.get(key));
+        List<String> right = QualityData.strings(b.get(key));
+        // An empty scope list is unrestricted, matching applicable().
+        return left.isEmpty() || right.isEmpty() || left.stream().anyMatch(right::contains);
+    }
+
+    private static boolean windowsIntersect(Map<String, Object> a, Map<String, Object> b) {
+        return instant(a, "effective_from", Instant.MIN)
+                        .isBefore(instant(b, "effective_to", Instant.MAX))
+                && instant(b, "effective_from", Instant.MIN)
+                        .isBefore(instant(a, "effective_to", Instant.MAX));
+    }
+
+    private static Instant instant(Map<String, Object> data, String key, Instant fallback) {
+        return data.get(key) == null ? fallback : Instant.parse(data.get(key).toString());
+    }
+
     public PlatformStore.Entity withdraw(
             String tenant, String id, String actor, long version, String reason) {
         PlatformStore.Entity entity = store.require(tenant, KIND, id);
-        if (!"PUBLISHED".equals(entity.data().get("state")) || reason == null || reason.isBlank()) {
-            throw new IllegalArgumentException("Withdrawal requires published policy and reason");
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Withdrawal requires a reason");
+        }
+        // Superseded versions can still be withdrawn to stop runtimes that pin them.
+        if (!Set.of("PUBLISHED", "SUPERSEDED").contains(entity.data().get("state"))) {
+            throw new PlatformException(
+                    409,
+                    "POLICY_NOT_WITHDRAWABLE",
+                    "Only published or superseded policies can be withdrawn");
         }
         Map<String, Object> data = QualityData.copy(entity.data());
         data.put("state", "WITHDRAWN");
@@ -300,7 +432,8 @@ public class PolicyService {
 
     public List<RuleInfo> resolve(String tenant, String id) {
         Map<String, Object> data = store.require(tenant, KIND, id).data();
-        if (!"PUBLISHED".equals(data.get("state"))) {
+        // Superseded versions remain immutable pins for existing runtimes; withdrawal stops them.
+        if (!Set.of("PUBLISHED", "SUPERSEDED").contains(data.get("state"))) {
             throw new IllegalArgumentException("Policy must be published: " + id);
         }
         return ruleMaps(data.get("rules")).stream()

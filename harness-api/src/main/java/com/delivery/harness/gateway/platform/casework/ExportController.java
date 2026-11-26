@@ -42,6 +42,7 @@ public class ExportController {
                             actor.tenantId(),
                             actor.userId(),
                             "CASE_EXPORTED",
+                            "case",
                             id,
                             Map.of("format", "structured_json", "version", current.version()));
                     return null;

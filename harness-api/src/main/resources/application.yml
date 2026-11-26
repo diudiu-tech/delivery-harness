@@ -56,6 +56,10 @@ harness:
     max-compensation-amount: ${HARNESS_MAX_COMPENSATION_AMOUNT:50.0}
   observe:
     max-tool-invocations: ${HARNESS_MAX_TOOL_INVOCATIONS:2000}
+  quality:
+    publish-gate:
+      # Measured, passing samples required per declared scenario before runtime publication.
+      min-measured-samples-per-scenario: ${HARNESS_PUBLISH_MIN_SAMPLES_PER_SCENARIO:20}
   eval:
     max-cases: ${HARNESS_MAX_EVAL_CASES:1000}
     max-runs: ${HARNESS_MAX_EVAL_RUNS:200}

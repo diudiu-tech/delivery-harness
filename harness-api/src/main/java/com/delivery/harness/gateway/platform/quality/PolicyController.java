@@ -56,6 +56,7 @@ public class PolicyController extends QualityAccess {
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_EDITOR", "ADMIN");
         authorizeCreateScope(actor, body);
+        authorizeSuperseded(actor, body);
         return policies.create(actor.tenantId(), actor.userId(), body);
     }
 
@@ -76,8 +77,22 @@ public class PolicyController extends QualityAccess {
         Map<String, Object> body = payload.toMap();
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_PUBLISHER", "ADMIN");
-        resource(actor, PolicyService.KIND, id);
+        authorizeSuperseded(actor, resource(actor, PolicyService.KIND, id).data());
         return policies.publish(actor.tenantId(), id, actor.userId(), version(body));
+    }
+
+    /**
+     * Superseding retires another publication, so the actor needs authoring authority over its
+     * whole scope; a scoped publisher cannot retire a global policy.
+     */
+    private void authorizeSuperseded(AuthContext.Principal actor, Map<String, Object> data) {
+        QualityData.strings(data.get("supersedes_policy_ids"))
+                .forEach(
+                        supersededId ->
+                                authorizeCreateScope(
+                                        actor,
+                                        resource(actor, PolicyService.KIND, supersededId)
+                                                .data()));
     }
 
     @PostMapping("/policies/versions/{id}/withdraw")
@@ -88,7 +103,8 @@ public class PolicyController extends QualityAccess {
         Map<String, Object> body = payload.toMap();
         AuthContext.Principal actor = PrincipalAccess.get(request);
         actor.requireRole("POLICY_PUBLISHER", "ADMIN");
-        resource(actor, PolicyService.KIND, id);
+        // Like superseding, withdrawal retires a publication across its whole scope.
+        authorizeCreateScope(actor, resource(actor, PolicyService.KIND, id).data());
         return policies.withdraw(
                 actor.tenantId(),
                 id,

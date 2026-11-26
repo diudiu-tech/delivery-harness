@@ -10,6 +10,7 @@ import com.delivery.harness.platform.store.PlatformStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -36,30 +37,42 @@ class EvaluationResultSummaryTest {
             throws Exception {
         DataSource source = source();
         Flyway.configure().dataSource(source).target("9").load().migrate();
-        var store = new PlatformStore(source);
-        var original =
-                store.create("t", KIND, "result", resultData(), "quality", "EVAL_SAMPLE_COMPLETED");
-        store.create(
-                "t", "knowledge", "unrelated", Map.of("title", "Keep me"), "quality", "CREATED");
-        try (var connection = source.getConnection();
-                var update = connection.createStatement()) {
-            // Emulate the V9 projection, which omitted every result-specific field.
-            update.executeUpdate(
-                    "UPDATE platform_records SET summary_payload='{}' WHERE"
-                        + " kind='eval_result:run-1'");
-            // V10 must not deserialize unrelated kinds while repairing results.
-            update.executeUpdate(
-                    "UPDATE platform_records SET payload='not-json' WHERE kind='knowledge'");
-        }
+        String payload = JsonUtil.toJson(resultData());
+        // Rows are written with plain SQL: current store code targets the latest schema. The V9
+        // projection omitted every result-specific field, hence the empty summary.
+        insertLegacy(source, KIND, "result", payload, "{}");
+        // V10 must not deserialize unrelated kinds while repairing results.
+        insertLegacy(source, "knowledge", "unrelated", "not-json", "{\"title\":\"Keep me\"}");
         PlatformTestDatabase.migrate(source);
+        var store = new PlatformStore(source);
         var restored = store.require("t", KIND, "result");
-        assertEquals(original.version(), restored.version());
-        assertEquals(original.updatedAt(), restored.updatedAt());
-        assertEquals(JsonUtil.toJson(original.data()), JsonUtil.toJson(restored.data()));
+        assertEquals(1, restored.version());
+        assertEquals("2026-01-01T00:00:00Z", restored.updatedAt());
+        assertEquals(payload, JsonUtil.toJson(restored.data()));
         assertEquals(
                 "Keep me", store.summaryPage("t", "knowledge", "", 20).get(0).data().get("title"));
         corruptPayload(source);
         assertScoreSummary(store);
+    }
+
+    private static void insertLegacy(
+            DataSource source, String kind, String id, String payload, String summary)
+            throws Exception {
+        try (var connection = source.getConnection();
+                var insert =
+                        connection.prepareStatement(
+                                "INSERT INTO platform_records(tenant_id,kind,record_id,"
+                                        + "record_version,created_at,updated_at,payload,"
+                                        + "summary_payload) VALUES ('t',?,?,1,?,?,?,?)")) {
+            OffsetDateTime at = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+            insert.setString(1, kind);
+            insert.setString(2, id);
+            insert.setObject(3, at);
+            insert.setObject(4, at);
+            insert.setString(5, payload);
+            insert.setString(6, summary);
+            insert.executeUpdate();
+        }
     }
 
     private static DataSource source() {

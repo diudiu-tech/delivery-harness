@@ -25,6 +25,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class KnowledgeService implements CitationProvider {
     public static final String KIND = "knowledge";
+    public static final String DOCUMENT = "knowledge_document";
     private static final Map<String, String> SYNONYMS =
             Map.of("迟到", "超时", "晚到", "超时", "撒漏", "洒漏", "运力紧张", "运力不足");
     private final PlatformStore store;
@@ -57,48 +58,163 @@ public class KnowledgeService implements CitationProvider {
         data.putAll(preview);
         data.put("state", "DRAFT");
         data.put("created_by", actor);
-        data.put(
-                "document_id",
-                QualityData.text(request, "document_id", UUID.randomUUID().toString()));
-        data.put(
-                "document_version",
-                nextDocumentVersion(tenant, data.get("document_id").toString()));
-        String id = UUID.randomUUID().toString();
-        List<Map<String, Object>> chunks = PolicyService.ruleMaps(data.get("chunks"));
-        chunks.forEach(
-                c -> {
-                    c.put("chunk_id", id + ":" + c.get("offset_start"));
-                    c.put("version_id", id);
-                    c.put("document_id", data.get("document_id"));
-                    c.put("document_version", data.get("document_version"));
-                });
-        data.put("chunks", chunks);
         if (request.containsKey("effective_from")) {
             Instant.parse(request.get("effective_from").toString());
         }
         if (request.containsKey("effective_to")) {
             Instant.parse(request.get("effective_to").toString());
         }
-        return store.create(tenant, KIND, id, data, actor, "KNOWLEDGE_DRAFT_CREATED");
+        String requestedDocument = QualityData.text(request, "document_id", "");
+        String id = UUID.randomUUID().toString();
+        return store.transact(
+                tx -> {
+                    // The locked document head serializes version allocation; a new head is
+                    // protected by the record primary key.
+                    String documentId;
+                    long documentVersion;
+                    if (requestedDocument.isBlank()) {
+                        documentId = UUID.randomUUID().toString();
+                        documentVersion = 1;
+                        tx.create(
+                                tenant,
+                                DOCUMENT,
+                                documentId,
+                                documentHead(documentId, data, 1, null),
+                                actor,
+                                "KNOWLEDGE_DOCUMENT_CREATED");
+                    } else {
+                        PlatformStore.Entity head =
+                                tx.getForUpdate(tenant, DOCUMENT, requestedDocument)
+                                        .filter(h -> sameScope(h.data(), data))
+                                        .orElseThrow(
+                                                () ->
+                                                        new PlatformException(
+                                                                404,
+                                                                "NOT_FOUND",
+                                                                "Knowledge document not found in"
+                                                                        + " authorized scope"));
+                        documentId = requestedDocument;
+                        documentVersion =
+                                Math.addExact(
+                                        ((Number) head.data().get("latest_version")).longValue(),
+                                        1L);
+                        Map<String, Object> next = QualityData.copy(head.data());
+                        next.put("latest_version", documentVersion);
+                        tx.update(
+                                tenant,
+                                DOCUMENT,
+                                documentId,
+                                head.version(),
+                                next,
+                                actor,
+                                "KNOWLEDGE_DOCUMENT_VERSION_ALLOCATED");
+                    }
+                    data.put("document_id", documentId);
+                    data.put("document_version", documentVersion);
+                    List<Map<String, Object>> chunks = PolicyService.ruleMaps(data.get("chunks"));
+                    chunks.forEach(
+                            c -> {
+                                c.put("chunk_id", id + ":" + c.get("offset_start"));
+                                c.put("version_id", id);
+                                c.put("document_id", documentId);
+                                c.put("document_version", documentVersion);
+                            });
+                    data.put("chunks", chunks);
+                    return tx.create(tenant, KIND, id, data, actor, "KNOWLEDGE_DRAFT_CREATED");
+                });
     }
 
-    private long nextDocumentVersion(String tenant, String documentId) {
-        long latest = 0;
-        String cursor = "";
-        while (true) {
-            List<PlatformStore.Entity> window =
-                    store.query(tenant, KIND, null, Set.of(), null, cursor, 100);
-            for (PlatformStore.Entity entity : window) {
-                if (documentId.equals(entity.data().get("document_id"))
-                        && entity.data().get("document_version") instanceof Number version) {
-                    latest = Math.max(latest, version.longValue());
-                }
-            }
-            if (window.size() < 100) {
-                return Math.addExact(latest, 1L);
-            }
-            cursor = window.get(window.size() - 1).id();
+    /** Version chain head: allocation counter, chain scope and the single current publication. */
+    public static Map<String, Object> documentHead(
+            String documentId, Map<String, Object> scope, long latest, String current) {
+        Map<String, Object> head = new LinkedHashMap<>();
+        head.put("document_id", documentId);
+        head.put("latest_version", latest);
+        head.put("current_version_id", current);
+        head.put("city_codes", QualityData.strings(scope.get("city_codes")));
+        head.put("station_ids", QualityData.strings(scope.get("station_ids")));
+        return head;
+    }
+
+    private static boolean sameScope(Map<String, Object> head, Map<String, Object> data) {
+        return Set.copyOf(QualityData.strings(head.get("city_codes")))
+                        .equals(Set.copyOf(QualityData.strings(data.get("city_codes"))))
+                && Set.copyOf(QualityData.strings(head.get("station_ids")))
+                        .equals(Set.copyOf(QualityData.strings(data.get("station_ids"))));
+    }
+
+    /** Publication atomically replaces the previous current version of the same document. */
+    private void switchCurrentVersion(
+            PlatformStore.Tx tx, String tenant, PlatformStore.Entity entity, String actor) {
+        String documentId = QualityData.text(entity.data(), "document_id", entity.id());
+        long documentVersion =
+                entity.data().get("document_version") instanceof Number number
+                        ? number.longValue()
+                        : 1L;
+        PlatformStore.Entity head = tx.getForUpdate(tenant, DOCUMENT, documentId).orElse(null);
+        if (head == null) {
+            tx.create(
+                    tenant,
+                    DOCUMENT,
+                    documentId,
+                    documentHead(documentId, entity.data(), documentVersion, entity.id()),
+                    actor,
+                    "KNOWLEDGE_DOCUMENT_CREATED");
+            return;
         }
+        String previousId = QualityData.text(head.data(), "current_version_id", "");
+        if (!previousId.isBlank() && !previousId.equals(entity.id())) {
+            PlatformStore.Entity previous = tx.get(tenant, KIND, previousId).orElse(null);
+            if (previous != null && "PUBLISHED".equals(previous.data().get("state"))) {
+                if (previous.data().get("document_version") instanceof Number published
+                        && published.longValue() > documentVersion) {
+                    throw PlatformException.conflict(
+                            "A newer version of this document is already published");
+                }
+                Map<String, Object> superseded = QualityData.copy(previous.data());
+                superseded.put("state", "SUPERSEDED");
+                superseded.put("superseded_by", actor);
+                superseded.put("superseded_at", Instant.now().toString());
+                superseded.put("superseded_by_version", entity.id());
+                tx.update(
+                        tenant,
+                        KIND,
+                        previousId,
+                        previous.version(),
+                        superseded,
+                        actor,
+                        "KNOWLEDGE_SUPERSEDED");
+            }
+        }
+        Map<String, Object> next = QualityData.copy(head.data());
+        next.put("current_version_id", entity.id());
+        tx.update(
+                tenant,
+                DOCUMENT,
+                documentId,
+                head.version(),
+                next,
+                actor,
+                "KNOWLEDGE_DOCUMENT_CURRENT_CHANGED");
+    }
+
+    private void clearCurrentVersion(
+            PlatformStore.Tx tx, String tenant, PlatformStore.Entity entity, String actor) {
+        String documentId = QualityData.text(entity.data(), "document_id", entity.id());
+        PlatformStore.Entity head = tx.getForUpdate(tenant, DOCUMENT, documentId).orElse(null);
+        if (head == null || !entity.id().equals(head.data().get("current_version_id"))) {
+            return;
+        }
+        Map<String, Object> next = QualityData.copy(head.data());
+        next.put("current_version_id", null);
+        tx.update(
+                tenant,
+                DOCUMENT,
+                documentId,
+                head.version(),
+                next,
+                actor,
+                "KNOWLEDGE_DOCUMENT_CURRENT_CHANGED");
     }
 
     public PlatformStore.Entity transition(
@@ -127,13 +243,24 @@ public class KnowledgeService implements CitationProvider {
                             nextState = "PUBLISHED";
                         }
                         case "withdraw" -> {
-                            if (!"PUBLISHED".equals(state) || reason == null || reason.isBlank()) {
-                                throw new IllegalArgumentException(
-                                        "Withdrawal requires published version and reason");
+                            if (reason == null || reason.isBlank()) {
+                                throw new IllegalArgumentException("Withdrawal requires a reason");
+                            }
+                            // Superseded versions can still be withdrawn to stop pinned runtimes.
+                            if (!Set.of("PUBLISHED", "SUPERSEDED").contains(state)) {
+                                throw new PlatformException(
+                                        409,
+                                        "KNOWLEDGE_NOT_WITHDRAWABLE",
+                                        "Only published or superseded knowledge can be withdrawn");
                             }
                             nextState = "WITHDRAWN";
                         }
                         default -> throw new IllegalArgumentException("Unknown lifecycle action");
+                    }
+                    if ("PUBLISHED".equals(nextState)) {
+                        switchCurrentVersion(tx, tenant, entity, actor);
+                    } else if ("WITHDRAWN".equals(nextState)) {
+                        clearCurrentVersion(tx, tenant, entity, actor);
                     }
                     Map<String, Object> next = QualityData.copy(entity.data());
                     next.put("state", nextState);
@@ -151,7 +278,9 @@ public class KnowledgeService implements CitationProvider {
         List<Map<String, Object>> result = new ArrayList<>();
         for (String id : ids) {
             PlatformStore.Entity entity = store.require(tenant, KIND, id);
-            if (!"PUBLISHED".equals(entity.data().get("state"))) {
+            // A superseded version stays frozen for runtimes that already pin it; search and
+            // citations only treat the current publication as live content.
+            if (!Set.of("PUBLISHED", "SUPERSEDED").contains(entity.data().get("state"))) {
                 throw new IllegalArgumentException("Knowledge version is not published: " + id);
             }
             requirePrivacySafe(entity.data());

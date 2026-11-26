@@ -18,6 +18,8 @@ public final class RecordSummaries {
                     "created_by",
                     "submitted_by",
                     "published_by",
+                    "superseded_at",
+                    "superseded_by_version",
                     "case_id",
                     "order_id",
                     "scenario",

@@ -23,17 +23,30 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class RuntimeConfigService {
     public static final String KIND = "runtime_config";
+    public static final String ROUTE_KIND = "runtime_route";
     public static final int MAX_BUNDLE_BYTES = 512 * 1024;
+    public static final List<String> SCENARIOS =
+            List.of("abnormal_order_analysis", "compensation_suggestion");
+
+    /** Sample evidence markers written only by the server; client-supplied evidence never gates. */
+    public static final Set<String> SERVER_EVIDENCE =
+            Set.of("SERVER_SNAPSHOT", "SERVER_SEED", "VERIFIED_FEEDBACK_SNAPSHOT");
+
+    private static final Set<String> PILOT_GATE_SPLITS = Set.of("REAL_LABELLED", "FROZEN_BLIND");
+    private static final Set<String> DEMO_GATE_SPLITS =
+            Set.of("REAL_LABELLED", "FROZEN_BLIND", "SYNTHETIC_SMOKE", "BOUNDARY_REGRESSION");
     private final PlatformStore store;
     private final PolicyService policies;
     private final KnowledgeService knowledge;
@@ -41,6 +54,9 @@ public class RuntimeConfigService {
 
     @Value("${harness.mode:demo}")
     private String mode = "demo";
+
+    @Value("${harness.quality.publish-gate.min-measured-samples-per-scenario:20}")
+    private int minMeasuredSamplesPerScenario = 20;
 
     @EventListener(ApplicationReadyEvent.class)
     @Order(-25)
@@ -75,13 +91,17 @@ public class RuntimeConfigService {
         Map<String, Object> data = executable(tenant, request);
         data.put("created_by", actor);
         requireBoundedBundle(data);
-        return store.create(
-                tenant,
-                KIND,
-                UUID.randomUUID().toString(),
-                data,
-                actor,
-                "RUNTIME_CONFIG_CANDIDATE_CREATED");
+        return store.transact(
+                tx -> {
+                    requireCurrentReferences(tx, tenant, data);
+                    return tx.create(
+                            tenant,
+                            KIND,
+                            UUID.randomUUID().toString(),
+                            data,
+                            actor,
+                            "RUNTIME_CONFIG_CANDIDATE_CREATED");
+                });
     }
 
     private Map<String, Object> executable(String tenant, Map<String, Object> request) {
@@ -114,10 +134,19 @@ public class RuntimeConfigService {
             throw new IllegalArgumentException("At most 50 knowledge versions per configuration");
         }
         PlatformStore.Entity policy = store.require(tenant, PolicyService.KIND, policyId);
+        List<String> scenarios = QualityData.strings(request.get("scenarios"));
+        if (scenarios.isEmpty()) {
+            scenarios = SCENARIOS;
+        } else if (!SCENARIOS.containsAll(scenarios)
+                || Set.copyOf(scenarios).size() != scenarios.size()) {
+            throw new IllegalArgumentException("scenarios must be distinct supported scenarios");
+        }
         Map<String, Object> data = new LinkedHashMap<>();
         if (request.containsKey("name")) {
             data.put("name", QualityData.required(request, "name", 256));
         }
+        // The release gate requires measured coverage of every scenario the config may serve.
+        data.put("scenarios", scenarios);
         data.put("model", model);
         data.put("endpoint_ref", "configured-default");
         data.put("prompt", prompt);
@@ -177,6 +206,35 @@ public class RuntimeConfigService {
         }
     }
 
+    /**
+     * New configs, publications and routes must pin the current publication. SUPERSEDED
+     * versions stay resolvable only for configs published before the supersession. The pinned
+     * rows are locked so a concurrent supersession or withdrawal cannot commit between this check
+     * and the caller's write; lock order is policy, then knowledge, then the runtime record.
+     */
+    private static void requireCurrentReferences(
+            PlatformStore.Tx tx, String tenant, Map<String, Object> config) {
+        String policyId = config.get("policy_version").toString();
+        if (!"PUBLISHED".equals(
+                tx.requireForUpdate(tenant, PolicyService.KIND, policyId).data().get("state"))) {
+            throw new PlatformException(
+                    409,
+                    "RUNTIME_REFERENCE_NOT_CURRENT",
+                    "Runtime configs must pin a currently published policy");
+        }
+        for (String knowledgeId : QualityData.strings(config.get("knowledge_versions"))) {
+            if (!"PUBLISHED".equals(
+                    tx.requireForUpdate(tenant, KnowledgeService.KIND, knowledgeId)
+                            .data()
+                            .get("state"))) {
+                throw new PlatformException(
+                        409,
+                        "RUNTIME_REFERENCE_NOT_CURRENT",
+                        "Runtime configs must pin currently published knowledge versions");
+            }
+        }
+    }
+
     public Map<String, Object> resolve(String tenant, String id) {
         Map<String, Object> result = resolveForEvaluation(tenant, id);
         if (!"PUBLISHED".equals(result.get("state"))) {
@@ -230,11 +288,158 @@ public class RuntimeConfigService {
             throw new PlatformException(
                     403, "SEPARATION_OF_DUTIES", "Runtime publisher must differ from author");
         }
+        requireGateEvidence(tenant, entity.data(), report);
         Map<String, Object> data = QualityData.copy(entity.data());
         data.put("state", "PUBLISHED");
         data.put("evaluation_run_id", report.id());
+        data.put("published_by", actor);
+        data.put("published_at", Instant.now().toString());
+        return store.transact(
+                tx -> {
+                    requireCurrentReferences(tx, tenant, entity.data());
+                    return tx.update(
+                            tenant,
+                            KIND,
+                            id,
+                            expectedVersion,
+                            data,
+                            actor,
+                            "RUNTIME_CONFIG_PUBLISHED");
+                });
+    }
+
+    /**
+     * A passing report gates release only when its frozen dataset is an eligible split, every
+     * sample's evidence was derived by the server, each declared scenario has enough measured
+     * samples, and neither the labels nor the run came from the config author.
+     */
+    private void requireGateEvidence(
+            String tenant, Map<String, Object> config, PlatformStore.Entity report) {
+        Map<String, Object> dataset = QualityData.map(report.data().get("dataset_snapshot"));
+        Set<String> splits = "pilot".equals(mode) ? PILOT_GATE_SPLITS : DEMO_GATE_SPLITS;
+        if (!(dataset.get("split") instanceof String split) || !splits.contains(split)) {
+            throw new PlatformException(
+                    422,
+                    "RUNTIME_GATE_SPLIT_INELIGIBLE",
+                    "Runtime publication requires an evaluation on an eligible dataset split: "
+                            + new TreeSet<>(splits));
+        }
+        List<Map<String, Object>> samples = PolicyService.ruleMaps(dataset.get("samples"));
+        if (samples.isEmpty()
+                || !samples.stream()
+                        .allMatch(s -> serverEvidence(s.get("evidence_provenance")))) {
+            throw new PlatformException(
+                    422,
+                    "RUNTIME_GATE_EVIDENCE_NOT_SERVER_DERIVED",
+                    "Gating datasets must use server-derived evidence; client-supplied evidence"
+                            + " is not eligible");
+        }
+        Object configAuthor = config.get("created_by");
+        Object datasetAuthor = dataset.get("created_by");
+        Object initiator = report.data().get("created_by");
+        if (configAuthor == null || datasetAuthor == null || initiator == null) {
+            throw new PlatformException(
+                    422,
+                    "RUNTIME_GATE_AUTHORSHIP_UNKNOWN",
+                    "Gating config, dataset and evaluation must record their authors");
+        }
+        if (configAuthor.equals(datasetAuthor) || configAuthor.equals(initiator)) {
+            throw new PlatformException(
+                    403,
+                    "SEPARATION_OF_DUTIES",
+                    "Gating dataset author and evaluation initiator must differ from the config"
+                            + " author");
+        }
+        Map<String, Integer> measured = new LinkedHashMap<>();
+        // Every result counts toward the per-scenario minimum, so page through all of them.
+        String cursor = "";
+        while (true) {
+            List<PlatformStore.Entity> results =
+                    store.query(
+                            tenant,
+                            QualityEvalService.RESULT + ":" + report.id(),
+                            null,
+                            Set.of(),
+                            null,
+                            cursor,
+                            100);
+            for (PlatformStore.Entity result : results) {
+                Map<String, Object> scores = QualityData.map(result.data().get("scores"));
+                if ("MEASURED".equals(scores.get("measurement_status"))
+                        && Boolean.TRUE.equals(scores.get("hard_gate_passed"))) {
+                    measured.merge(
+                            QualityData.text(
+                                    QualityData.map(result.data().get("sample")), "scenario", ""),
+                            1,
+                            Integer::sum);
+                }
+            }
+            if (results.size() < 100) {
+                break;
+            }
+            cursor = results.get(results.size() - 1).id();
+        }
+        int minimum = Math.max(1, minMeasuredSamplesPerScenario);
+        for (String scenario : scenarios(config)) {
+            if (measured.getOrDefault(scenario, 0) < minimum) {
+                throw new PlatformException(
+                        422,
+                        "RUNTIME_GATE_INSUFFICIENT_SAMPLES",
+                        "Scenario "
+                                + scenario
+                                + " needs at least "
+                                + minimum
+                                + " measured passing samples; found "
+                                + measured.getOrDefault(scenario, 0));
+            }
+        }
+    }
+
+    /** Null-safe: legacy samples without a server marker are not gate-eligible. */
+    public static boolean serverEvidence(Object provenance) {
+        return provenance instanceof String marker && SERVER_EVIDENCE.contains(marker);
+    }
+
+    /** Legacy configs without a declaration may be routed to any scenario. */
+    static List<String> scenarios(Map<String, Object> config) {
+        List<String> declared = QualityData.strings(config.get("scenarios"));
+        return declared.isEmpty() ? SCENARIOS : declared;
+    }
+
+    public PlatformStore.Entity withdraw(
+            String tenant, String id, String actor, long expectedVersion, String reason) {
+        return withdraw(tenant, KIND, id, actor, expectedVersion, reason, "RUNTIME_CONFIG");
+    }
+
+    public PlatformStore.Entity withdrawRoute(
+            String tenant, String id, String actor, long expectedVersion, String reason) {
+        return withdraw(tenant, ROUTE_KIND, id, actor, expectedVersion, reason, "RUNTIME_ROUTE");
+    }
+
+    /** Stops new online resolution; executions keep the configuration copy frozen at start. */
+    private PlatformStore.Entity withdraw(
+            String tenant,
+            String kind,
+            String id,
+            String actor,
+            long expectedVersion,
+            String reason,
+            String auditPrefix) {
+        PlatformStore.Entity entity = store.require(tenant, kind, id);
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Withdrawal requires a reason");
+        }
+        if (!"PUBLISHED".equals(entity.data().get("state"))) {
+            throw new PlatformException(
+                    409, "RUNTIME_NOT_PUBLISHED", "Only published runtime records can be withdrawn");
+        }
+        Map<String, Object> data = QualityData.copy(entity.data());
+        data.put("state", "WITHDRAWN");
+        data.put("withdrawn_by", actor);
+        data.put("withdrawn_at", Instant.now().toString());
+        data.put("withdrawal_reason", reason);
         return store.update(
-                tenant, KIND, id, expectedVersion, data, actor, "RUNTIME_CONFIG_CANDIDATE_CREATED");
+                tenant, kind, id, expectedVersion, data, actor, auditPrefix + "_WITHDRAWN");
     }
 
     public RuntimeBinding bind(String tenant, String id, OrderInfo order, boolean verifiedDamage) {
@@ -244,13 +449,22 @@ public class RuntimeConfigService {
     public PlatformStore.Entity createRoute(
             String tenant, String actor, Map<String, Object> request) {
         String scenario = QualityData.required(request, "scenario", 64);
-        if (!Set.of("abnormal_order_analysis", "compensation_suggestion").contains(scenario)) {
+        if (!SCENARIOS.contains(scenario)) {
             throw new IllegalArgumentException("Unsupported runtime route scenario");
         }
         String primary = QualityData.required(request, "primary_config_id", 100);
         String fallback = QualityData.required(request, "fallback_config_id", 100);
-        resolve(tenant, primary);
-        resolve(tenant, fallback);
+        List<Map<String, Object>> routed = new ArrayList<>();
+        for (String configId : List.of(primary, fallback)) {
+            Map<String, Object> config = resolve(tenant, configId);
+            if (!scenarios(config).contains(scenario)) {
+                throw new PlatformException(
+                        422,
+                        "RUNTIME_ROUTE_SCENARIO_NOT_GATED",
+                        "Routed configs must have been gated on the route scenario");
+            }
+            routed.add(config);
+        }
         int percent = integer(request, "rollout_percent", 100, 0, 100);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("scenario", scenario);
@@ -261,31 +475,52 @@ public class RuntimeConfigService {
         data.put("station_ids", QualityData.strings(request.get("station_ids")));
         data.put("state", "PUBLISHED");
         data.put("created_by", actor);
-        return store.create(
-                tenant,
-                "runtime_route",
-                UUID.randomUUID().toString(),
-                data,
-                actor,
-                "RUNTIME_ROUTE_PUBLISHED");
+        return store.transact(
+                tx -> {
+                    // A new route widens a config's reach, so superseded pins are not grandfathered.
+                    routed.forEach(config -> requireCurrentReferences(tx, tenant, config));
+                    return tx.create(
+                            tenant,
+                            ROUTE_KIND,
+                            UUID.randomUUID().toString(),
+                            data,
+                            actor,
+                            "RUNTIME_ROUTE_PUBLISHED");
+                });
     }
 
-    /** Case-stable rollout. The selected immutable map must be persisted before worker dispatch. */
+    private static boolean preferred(PlatformStore.Entity route, PlatformStore.Entity selected) {
+        int rank = Integer.compare(specificity(route.data()), specificity(selected.data()));
+        if (rank != 0) {
+            return rank > 0;
+        }
+        return Instant.parse(route.createdAt()).isAfter(Instant.parse(selected.createdAt()))
+                || route.createdAt().equals(selected.createdAt())
+                        && route.id().compareTo(selected.id()) > 0;
+    }
+
+    /** Station-scoped routes outrank city-scoped routes, which outrank tenant-wide routes. */
+    static int specificity(Map<String, Object> route) {
+        return (QualityData.strings(route.get("station_ids")).isEmpty() ? 0 : 2)
+                + (QualityData.strings(route.get("city_codes")).isEmpty() ? 0 : 1);
+    }
+
+    /**
+     * Case-stable rollout. The most specific published matching route wins, then the latest. A
+     * withdrawn or unpublished config on the selected route fails closed rather than silently
+     * falling back. The selected immutable map must be persisted before worker dispatch.
+     */
     public Map<String, Object> route(
             String tenant, String scenario, String city, String station, String caseId) {
         PlatformStore.Entity selected = null;
         String cursor = "";
         for (int page = 0; page < 10; page++) {
             List<PlatformStore.Entity> routes =
-                    store.query(tenant, "runtime_route", null, Set.of(), "PUBLISHED", cursor, 1000);
+                    store.query(tenant, ROUTE_KIND, null, Set.of(), "PUBLISHED", cursor, 1000);
             for (PlatformStore.Entity route : routes) {
                 if (scenario.equals(route.data().get("scenario"))
                         && PolicyService.applicable(route.data(), city, station, Instant.now())
-                        && (selected == null
-                                || Instant.parse(route.createdAt())
-                                        .isAfter(Instant.parse(selected.createdAt()))
-                                || route.createdAt().equals(selected.createdAt())
-                                        && route.id().compareTo(selected.id()) > 0)) {
+                        && (selected == null || preferred(route, selected))) {
                     selected = route;
                 }
             }
@@ -301,7 +536,7 @@ public class RuntimeConfigService {
             cursor = routes.get(routes.size() - 1).id();
         }
         if (selected == null) {
-            return resolve(tenant, "runtime-default-v1");
+            return routable(tenant, "runtime-default-v1");
         }
         int bucket =
                 Math.floorMod(
@@ -312,10 +547,22 @@ public class RuntimeConfigService {
                 selected.data()
                         .get(bucket < percent ? "primary_config_id" : "fallback_config_id")
                         .toString();
-        Map<String, Object> resolved = resolve(tenant, id);
+        Map<String, Object> resolved = routable(tenant, id);
         resolved.put("route_id", selected.id());
         resolved.put("rollout_bucket", bucket);
         return resolved;
+    }
+
+    private Map<String, Object> routable(String tenant, String id) {
+        try {
+            return resolve(tenant, id);
+        } catch (IllegalArgumentException unavailable) {
+            throw new PlatformException(
+                    409,
+                    "RUNTIME_ROUTE_CONFIG_UNAVAILABLE",
+                    "The routed runtime config is withdrawn or unpublished; withdraw or replace"
+                            + " the route");
+        }
     }
 
     public Map<String, Object> probe(String tenant, String id) {

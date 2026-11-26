@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
+@LegacyV1Api
 @RequestMapping("/api/v1/eval")
 @RequiredArgsConstructor
 @Validated

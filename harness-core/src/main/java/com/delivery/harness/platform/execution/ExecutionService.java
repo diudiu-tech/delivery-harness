@@ -206,6 +206,7 @@ public class ExecutionService {
                                 PlatformStore.Entity latest =
                                         tx.require(actor.tenantId(), "case", caseId);
                                 CaseService.authorize(actor, latest);
+                                CaseService.requireNotClosed(latest);
                                 CaseService.requireNoActivePayment(latest);
                                 if (latest.version()
                                         != CaseService.number(request, "expected_case_version"))
@@ -305,23 +306,12 @@ public class ExecutionService {
                                 cd.put("evidence_snapshot_id", snapshotId);
                                 cd.put("review_status", "PENDING");
                                 cd.put("payment_status", "NOT_EXECUTED");
-                                if (cd.get("review_id") != null) {
-                                    PlatformStore.Entity review =
-                                            tx.require(
-                                                    actor.tenantId(),
-                                                    "review",
-                                                    cd.get("review_id").toString());
-                                    Map<String, Object> rd = new LinkedHashMap<>(review.data());
-                                    rd.put("status", "SUPERSEDED");
-                                    tx.update(
-                                            actor.tenantId(),
-                                            "review",
-                                            review.id(),
-                                            review.version(),
-                                            rd,
-                                            actor.userId(),
-                                            "REVIEW_SUPERSEDED");
-                                }
+                                CaseService.supersedeReview(
+                                        tx,
+                                        actor,
+                                        latest,
+                                        "ANALYSIS_REQUEUED",
+                                        "REVIEW_SUPERSEDED");
                                 tx.update(
                                         actor.tenantId(),
                                         "case",
@@ -631,9 +621,10 @@ public class ExecutionService {
             terminal(tenant, id, "TIMED_OUT", "WORKER");
             return;
         }
+        Instant deadline = Instant.parse(claimed.data().get("deadline_at").toString());
         ScheduledFuture<?> heartbeat =
                 heartbeatTimer.scheduleWithFixedDelay(
-                        () -> renew(tenant, id, fence), 1, 1, TimeUnit.SECONDS);
+                        () -> renew(tenant, id, fence, deadline), 1, 1, TimeUnit.SECONDS);
         long budgetMillis =
                 Math.max(
                         1,
@@ -802,8 +793,9 @@ public class ExecutionService {
                         rd.put("decision_version", 1);
                         rd.put("evidence_snapshot_id", e.data().get("evidence_snapshot_id"));
                         rd.put("status", "PENDING");
-                        rd.put("risk_level", output.getOrDefault("needs_human_review", true));
-                        tx.create(tenant, "review", reviewId, rd, "WORKER", "REVIEW_CREATED");
+                        rd.put(
+                                "needs_human_review",
+                                output.getOrDefault("needs_human_review", true));
                         Map<String, Object> cd = new LinkedHashMap<>(c.data());
                         cd.put("current_decision_id", decisionId);
                         cd.put("policy_version", config.get("policy_version"));
@@ -820,6 +812,9 @@ public class ExecutionService {
                                         >= 0) cd.put("risk_level", "HIGH");
                         if (c.data().get("duplicate_case_ids") instanceof List<?> duplicates
                                 && !duplicates.isEmpty()) cd.put("risk_level", "HIGH");
+                        // Reviews share the case HIGH/NORMAL vocabulary used by queue filters.
+                        rd.put("risk_level", cd.getOrDefault("risk_level", "NORMAL"));
+                        tx.create(tenant, "review", reviewId, rd, "WORKER", "REVIEW_CREATED");
                         tx.update(
                                 tenant,
                                 "case",
@@ -881,29 +876,23 @@ public class ExecutionService {
         }
     }
 
-    private void renew(String tenant, String id, String fence) {
+    /**
+     * Fenced lease extension: one projected-column UPDATE that never rewrites the frozen payload,
+     * bumps the CAS version, or appends an audit row. Claim, recovery, and finish stay audited.
+     */
+    private void renew(String tenant, String id, String fence, Instant deadline) {
+        Instant now = Instant.now();
+        if (now.isAfter(deadline)) return;
         try {
             store.transact(
-                    tx -> {
-                        PlatformStore.Entity e = tx.requireForUpdate(tenant, "execution", id);
-                        if (!"RUNNING".equals(e.data().get("status"))
-                                || !fence.equals(e.data().get("fence"))) return null;
-                        if (Instant.now()
-                                .isAfter(Instant.parse(e.data().get("deadline_at").toString()))) {
-                            return null;
-                        }
-                        Map<String, Object> d = new LinkedHashMap<>(e.data());
-                        d.put("lease_until", Instant.now().plusSeconds(5).toString());
-                        tx.update(
-                                tenant,
-                                "execution",
-                                id,
-                                e.version(),
-                                d,
-                                "WORKER",
-                                "EXECUTION_HEARTBEAT");
-                        return null;
-                    });
+                    tx ->
+                            tx.renewLease(
+                                    tenant,
+                                    "execution",
+                                    id,
+                                    "RUNNING",
+                                    fence,
+                                    now.plusSeconds(5)));
         } catch (PlatformException failure) {
             backgroundFailure("heartbeat", failure);
         } catch (RuntimeException failure) {

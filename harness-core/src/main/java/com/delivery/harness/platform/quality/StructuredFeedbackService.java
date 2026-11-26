@@ -149,7 +149,7 @@ public class StructuredFeedbackService {
 
     /** A supplied regression reference must be fully readable before it can authorize a label. */
     private String validatedRegression(
-            AuthContext.Principal actor, String runId, String feedbackId) {
+            AuthContext.Principal actor, String runId, String feedbackId, String originalConfig) {
         PlatformStore.Entity run = store.require(actor.tenantId(), QualityEvalService.RUN, runId);
         RuntimeConfigService.authorizeRead(
                 actor, QualityData.map(run.data().get("resolved_config")));
@@ -174,6 +174,22 @@ public class StructuredFeedbackService {
                 .noneMatch(sample -> feedbackId.equals(sample.get("source_feedback_id")))) {
             throw new IllegalArgumentException(
                     "Regression report must include this verified feedback sample");
+        }
+        // Re-running the configuration that produced the feedback cannot prove a fix.
+        String evaluated =
+                QualityData.text(
+                        run.data(),
+                        "runtime_config_id",
+                        QualityData.text(
+                                QualityData.map(run.data().get("resolved_config")),
+                                "config_id",
+                                ""));
+        if (evaluated.isBlank() || evaluated.equals(originalConfig)) {
+            throw new PlatformException(
+                    409,
+                    "REGRESSION_CONFIG_UNCHANGED",
+                    "Regression verification must evaluate a runtime configuration different"
+                            + " from the one that produced the feedback");
         }
         return runId;
     }
@@ -208,11 +224,30 @@ public class StructuredFeedbackService {
             data.put(
                     "eval_run_id",
                     validatedRegression(
-                            actor, QualityData.required(request, "eval_run_id", 100), id));
+                            actor,
+                            QualityData.required(request, "eval_run_id", 100),
+                            id,
+                            QualityData.text(entity.data(), "runtime_config_id", "")));
         }
         data.put("status", status);
-        data.put("verification_reason", reason);
-        data.put("verified_by", actor.userId());
+        // Each stage keeps its own actor; verified_by stays the independent verification decision.
+        switch (status) {
+            case "LINKED_FIX" -> {
+                data.put("linked_by", actor.userId());
+                data.put("link_reason", reason);
+            }
+            case "REGRESSION_VERIFIED" -> {
+                data.put("regression_verified_by", actor.userId());
+                data.put("regression_reason", reason);
+            }
+            default -> {
+                data.put("verification_reason", reason);
+                data.put("verified_by", actor.userId());
+                data.put(
+                        "CONFIRMED".equals(status) ? "confirmed_by" : "rejected_by",
+                        actor.userId());
+            }
+        }
         return store.transact(
                 tx -> {
                     PlatformStore.Entity lockedCase =

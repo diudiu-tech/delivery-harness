@@ -63,6 +63,66 @@ class PlatformStoreTest {
     }
 
     @Test
+    void auditScopeComesFromTheWrittenKindWhenRecordIdsCollide() {
+        PlatformStore store = PlatformTestDatabase.memory();
+        store.create(
+                "t",
+                "case",
+                "shared",
+                Map.of("city_code", "A", "station_id", "SA"),
+                "agent",
+                "CASE_CREATED");
+        store.create(
+                "t",
+                "case",
+                "other-case",
+                Map.of("city_code", "B", "station_id", "SB"),
+                "agent",
+                "CASE_CREATED");
+        var material =
+                store.create(
+                        "t",
+                        "material",
+                        "shared",
+                        Map.of("case_id", "other-case", "status", "UPLOADED"),
+                        "agent",
+                        "MATERIAL_UPLOADED");
+        store.update(
+                "t",
+                "material",
+                "shared",
+                material.version(),
+                Map.of("case_id", "other-case", "status", "VERIFIED"),
+                "agent",
+                "MATERIAL_VERIFIED");
+        store.transact(
+                tx -> {
+                    tx.audit("t", "agent", "MATERIAL_EXPORTED", "material", "shared", Map.of());
+                    return null;
+                });
+        List<String> cityB = auditActions(store, new Scope("t", Set.of("B"), Set.of("SB")));
+        assertEquals(
+                List.of(
+                        "MATERIAL_EXPORTED",
+                        "MATERIAL_VERIFIED",
+                        "MATERIAL_UPLOADED",
+                        "CASE_CREATED"),
+                cityB);
+        assertEquals(
+                List.of("CASE_CREATED"),
+                auditActions(store, new Scope("t", Set.of("A"), Set.of("SA"))));
+    }
+
+    private static List<String> auditActions(PlatformStore store, RecordScope scope) {
+        return store.auditPage(scope, "", 100).items().stream()
+                .map(event -> event.get("action").toString())
+                .toList();
+    }
+
+    private record Scope(String tenantId, Set<String> cityCodes, Set<String> stationIds)
+            implements RecordScope {}
+
+    @Test
     void domainAndAuditRollbackTogether() {
         PlatformStore store = PlatformTestDatabase.memory();
         assertThrows(

@@ -15,6 +15,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -24,6 +25,7 @@ import java.util.Set;
 
 /** Installed after Spring's JWT signature verification and before anonymous authentication. */
 public final class PlatformSecurityFilter extends OncePerRequestFilter {
+    private static final String LEGACY_PREFIX = "/api/v1";
     private final String mode;
     private final DemoIdentityConfig demo;
     private final PlatformStore store;
@@ -62,7 +64,7 @@ public final class PlatformSecurityFilter extends OncePerRequestFilter {
                                         .toList());
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
-            if ("pilot".equals(mode) && request.getRequestURI().startsWith("/api/v1/")) {
+            if ("pilot".equals(mode) && legacyApi(request)) {
                 throw new PlatformException(
                         410, "V2_REQUIRED", "Pilot requires scoped /api/v2 resources");
             }
@@ -82,6 +84,18 @@ public final class PlatformSecurityFilter extends OncePerRequestFilter {
                         response, 503, "AUDIT_UNAVAILABLE", "Access refusal could not be recorded");
             }
         }
+    }
+
+    /**
+     * Spring MVC matches decoded path segments, so the raw request URI is not a safe key: an
+     * encoded spelling such as /api/%761/ would otherwise slip past this check. Pilot does not
+     * register v1 controllers either; this keeps the documented 410 for every spelling.
+     */
+    private static boolean legacyApi(HttpServletRequest request) {
+        String path = UrlPathHelper.defaultInstance.getPathWithinApplication(request);
+        return path.regionMatches(true, 0, LEGACY_PREFIX, 0, LEGACY_PREFIX.length())
+                && (path.length() == LEGACY_PREFIX.length()
+                        || path.charAt(LEGACY_PREFIX.length()) == '/');
     }
 
     private static AuthContext.Principal verifiedJwtPrincipal() {

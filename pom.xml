@@ -50,10 +50,26 @@
              Cross-module API exercise is reported separately by report-aggregate.
              Never lower the floor to make a failing build pass. -->
         <jacoco.core.line.minimum>0.70</jacoco.core.line.minimum>
+
+        <!-- Real PostgreSQL binaries for migration/store smoke tests; no Docker needed. -->
+        <embedded-postgres.version>2.2.3</embedded-postgres.version>
+        <embedded-postgres-binaries.version>17.12.0</embedded-postgres-binaries.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.zonky.test.postgres</groupId>
+                <artifactId>embedded-postgres-binaries-bom</artifactId>
+                <version>${embedded-postgres-binaries.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.zonky.test</groupId>
+                <artifactId>embedded-postgres</artifactId>
+                <version>${embedded-postgres.version}</version>
+            </dependency>
             <!-- internal modules -->
             <dependency>
                 <groupId>com.delivery.harness</groupId>

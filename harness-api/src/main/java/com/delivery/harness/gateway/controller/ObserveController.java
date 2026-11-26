@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
+@LegacyV1Api
 @RequestMapping("/api/v1/observe")
 @RequiredArgsConstructor
 @Validated

@@ -201,6 +201,86 @@ class IndexedPlatformStoreTest {
     }
 
     @Test
+    void upgradeScopesLegacyAuditsByKindAndProjectsExecutionLeases() throws Exception {
+        DataSource source =
+                PlatformTestDatabase.source(
+                        "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1");
+        Flyway.configure()
+                .dataSource(source)
+                .locations("classpath:db/migration")
+                .target("2")
+                .load()
+                .migrate();
+        Instant lease = Instant.parse("2026-01-01T00:00:05.123456Z");
+        try (var connection = source.getConnection();
+                PreparedStatement record =
+                        connection.prepareStatement(
+                                "INSERT INTO platform_records(tenant_id, kind, record_id,"
+                                        + " record_version, created_at, updated_at, payload) VALUES"
+                                        + " ('t',?,?,1,'2026-01-01T00:00:00Z',"
+                                        + "'2026-01-01T00:00:00Z',?)");
+                PreparedStatement audit =
+                        connection.prepareStatement(
+                                "INSERT INTO platform_audit_events(event_id, tenant_id, actor_id,"
+                                        + " action, resource_id, created_at, payload) VALUES"
+                                        + " (?,'t','agent',?,'shared','2026-01-01T00:00:00Z',?)")) {
+            List<List<Object>> records =
+                    List.of(
+                            List.of("case", "shared", Map.of("city_code", "A", "station_id", "S")),
+                            List.of("case", "b", Map.of("city_code", "B", "station_id", "S")),
+                            List.of("material", "shared", Map.of("case_id", "b")),
+                            List.of(
+                                    "execution",
+                                    "run",
+                                    Map.of(
+                                            "case_id",
+                                            "b",
+                                            "status",
+                                            "RUNNING",
+                                            "fence",
+                                            "legacy",
+                                            "lease_until",
+                                            lease.toString())));
+            for (List<Object> row : records) {
+                record.setString(1, row.get(0).toString());
+                record.setString(2, row.get(1).toString());
+                record.setString(3, JsonUtil.toJson(row.get(2)));
+                record.executeUpdate();
+            }
+            audit.setString(1, "material-event");
+            audit.setString(2, "MATERIAL_UPLOADED");
+            audit.setString(3, JsonUtil.toJson(Map.of("kind", "material")));
+            audit.executeUpdate();
+            audit.setString(1, "case-event");
+            audit.setString(2, "CASE_CREATED");
+            audit.setString(3, JsonUtil.toJson(Map.of("kind", "case")));
+            audit.executeUpdate();
+        }
+        PlatformTestDatabase.migrate(source);
+        PlatformStore store = new PlatformStore(source);
+        assertEquals(
+                List.of("MATERIAL_UPLOADED"),
+                store.auditPage(new Scope("t", Set.of("B"), Set.of("S")), "", 10).items().stream()
+                        .map(event -> event.get("action"))
+                        .toList());
+        assertEquals(
+                List.of("CASE_CREATED"),
+                store.auditPage(new Scope("t", Set.of("A"), Set.of("S")), "", 10).items().stream()
+                        .map(event -> event.get("action"))
+                        .toList());
+        Instant renewed = Instant.parse("2027-01-01T00:00:00Z");
+        assertFalse(
+                store.<Boolean>transact(
+                        tx -> tx.renewLease("t", "execution", "run", "RUNNING", "other", renewed)));
+        assertTrue(
+                store.<Boolean>transact(
+                        tx -> tx.renewLease("t", "execution", "run", "RUNNING", "legacy", renewed)));
+        assertEquals(
+                renewed.toString(),
+                store.require("t", "execution", "run").data().get("lease_until"));
+    }
+
+    @Test
     void realClasspathFlywayUpgradesLegacyBodiesAndIndexes() throws Exception {
         DataSource source =
                 PlatformTestDatabase.source(

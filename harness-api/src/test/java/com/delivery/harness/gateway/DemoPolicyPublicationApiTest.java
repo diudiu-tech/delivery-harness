@@ -50,7 +50,9 @@ class DemoPolicyPublicationApiTest {
                                                                 "name",
                                                                 "Synthetic demo policy",
                                                                 "rules",
-                                                                List.of(rule)))))
+                                                                List.of(rule),
+                                                                "supersedes_policy_ids",
+                                                                List.of("policy-default-v1")))))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -74,5 +76,33 @@ class DemoPolicyPublicationApiTest {
                                 .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.state").value("PUBLISHED"));
+        // A second overlapping draft without a supersession declaration cannot also go live.
+        Map<String, Object> overlapping =
+                JsonUtil.fromJson(
+                        mvc.perform(
+                                        post("/api/v2/policies/versions")
+                                                .header("Host", "localhost:8080")
+                                                .header("Authorization", "Bearer demo-admin-token")
+                                                .contentType("application/json")
+                                                .content(
+                                                        JsonUtil.toJson(
+                                                                Map.of("rules", List.of(rule)))))
+                                .andExpect(status().isOk())
+                                .andReturn()
+                                .getResponse()
+                                .getContentAsString(),
+                        Map.class);
+        mvc.perform(
+                        post("/api/v2/policies/versions/" + overlapping.get("id") + "/publish")
+                                .header("Host", "localhost:8080")
+                                .header("Authorization", "Bearer demo-publisher-token")
+                                .contentType("application/json")
+                                .content(
+                                        JsonUtil.toJson(
+                                                Map.of(
+                                                        "expected_version",
+                                                        overlapping.get("version")))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("POLICY_OVERLAP"));
     }
 }

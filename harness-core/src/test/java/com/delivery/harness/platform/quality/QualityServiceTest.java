@@ -114,7 +114,14 @@ class QualityServiceTest {
                         policies.publish(
                                 actor.tenantId(), conflict.id(), "publisher", conflict.version()));
         var draft =
-                policies.create(actor.tenantId(), actor.userId(), Map.of("rules", List.of(rule)));
+                policies.create(
+                        actor.tenantId(),
+                        actor.userId(),
+                        Map.of(
+                                "rules",
+                                List.of(rule),
+                                "supersedes_policy_ids",
+                                List.of("policy-default-v1")));
         assertEquals(
                 403,
                 assertThrows(
@@ -177,7 +184,9 @@ class QualityServiceTest {
                                 List.of(
                                         intervalRule("HIGH", 17, null),
                                         disabled,
-                                        intervalRule("LOW", 0, 15))));
+                                        intervalRule("LOW", 0, 15)),
+                                "supersedes_policy_ids",
+                                List.of("policy-default-v1")));
         Map<String, Object> report = policies.validate(actor.tenantId(), draft.id());
         assertEquals(true, report.get("valid"));
         var gaps = PolicyService.ruleMaps(report.get("coverage_gaps"));
@@ -746,22 +755,7 @@ class QualityServiceTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> configs.publish(actor.tenantId(), config.id(), "publisher", 1, bad));
-        var report =
-                store.create(
-                        actor.tenantId(),
-                        QualityEvalService.RUN,
-                        "good-run",
-                        Map.of(
-                                "status",
-                                "COMPLETED",
-                                "hard_gate_passed",
-                                true,
-                                "runtime_config_id",
-                                config.id(),
-                                "resolved_config",
-                                config.data()),
-                        "SYSTEM",
-                        "TEST");
+        var report = GateReports.of(store, config).everyScenario(20).store();
         var published = configs.publish(actor.tenantId(), config.id(), "publisher", 1, report);
         assertEquals(config.data().get("config_hash"), published.data().get("config_hash"));
         assertEquals("PUBLISHED", configs.resolve(actor.tenantId(), config.id()).get("state"));
@@ -904,6 +898,60 @@ class QualityServiceTest {
                             evaluator.createDataset(
                                     actor,
                                     Map.of("split", "REAL_LABELLED", "samples", List.of(renamed))));
+        } finally {
+            evaluator.shutdown();
+        }
+    }
+
+    @Test
+    void datasetProvenanceAndAuthorAreServerSetAndClientEvidenceIsMarked() {
+        QualityEvalService evaluator =
+                new QualityEvalService(
+                        store,
+                        configs,
+                        new WorkflowEngine(),
+                        new OrderSource("demo", "", "", ""),
+                        new EvalCaseManager(),
+                        "test-sha");
+        try {
+            Map<String, Object> forged = new LinkedHashMap<>(sample());
+            forged.put("evidence_provenance", "SERVER_SNAPSHOT");
+            forged.put("data_mode", "REAL");
+            var clientDataset =
+                    evaluator.createDataset(
+                            actor, Map.of("split", "REAL_LABELLED", "samples", List.of(forged)));
+            Map<String, Object> clientSample =
+                    PolicyService.ruleMaps(clientDataset.data().get("samples")).get(0);
+            assertEquals("CLIENT_SUPPLIED", clientSample.get("evidence_provenance"));
+            assertEquals("CLIENT_SUPPLIED", clientDataset.data().get("provenance"));
+            assertEquals(actor.userId(), clientDataset.data().get("created_by"));
+            var serverDataset =
+                    evaluator.createDataset(
+                            actor,
+                            Map.of(
+                                    "split",
+                                    "REAL_LABELLED",
+                                    "samples",
+                                    List.of(
+                                            Map.of(
+                                                    "scenario",
+                                                    "compensation_suggestion",
+                                                    "input",
+                                                    Map.of("order_id", "DEMO-002"),
+                                                    "evidence_provenance",
+                                                    "FORGED"))));
+            assertEquals(
+                    "SERVER_SNAPSHOT",
+                    PolicyService.ruleMaps(serverDataset.data().get("samples"))
+                            .get(0)
+                            .get("evidence_provenance"));
+            assertEquals("SERVER_DERIVED", serverDataset.data().get("provenance"));
+            evaluator.ensureDefaults(actor);
+            var seed =
+                    store.require(
+                            actor.tenantId(), QualityEvalService.DATASET, "synthetic-smoke-v1");
+            assertEquals("SYSTEM", seed.data().get("created_by"));
+            assertEquals("SERVER_DERIVED", seed.data().get("provenance"));
         } finally {
             evaluator.shutdown();
         }
@@ -1053,6 +1101,8 @@ class QualityServiceTest {
                         "COMPLETED",
                         "hard_gate_passed",
                         true,
+                        "runtime_config_id",
+                        "runtime-fixed-v2",
                         "resolved_config",
                         Map.of(
                                 "policy_scope",
@@ -1096,11 +1146,61 @@ class QualityServiceTest {
                         .status());
         assertEquals(
                 "LINKED_FIX", feedback.require(scopedVerifier, entry.id()).data().get("status"));
-        assertEquals(
-                "REGRESSION_VERIFIED",
-                feedback.transition(verifier, entry.id(), linked.version(), regression)
-                        .data()
-                        .get("status"));
+        assertEquals("verifier", linked.data().get("verified_by"));
+        assertEquals("scoped-verifier", linked.data().get("linked_by"));
+        store.create(
+                actor.tenantId(),
+                "eval_run",
+                "same-config-regression",
+                Map.of(
+                        "status",
+                        "COMPLETED",
+                        "hard_gate_passed",
+                        true,
+                        "runtime_config_id",
+                        "runtime-default-v1",
+                        "resolved_config",
+                        Map.of(
+                                "policy_scope",
+                                Map.of("city_codes", List.of(), "station_ids", List.of()),
+                                "knowledge_snapshot",
+                                List.of()),
+                        "dataset_snapshot",
+                        Map.of(
+                                "samples",
+                                List.of(
+                                        Map.of(
+                                                "source_feedback_id",
+                                                entry.id(),
+                                                "evidence_order",
+                                                Map.of("cityCode", "010", "stationId", "S001"))))),
+                "verifier",
+                "TEST");
+        var unchanged =
+                assertThrows(
+                        PlatformException.class,
+                        () ->
+                                feedback.transition(
+                                        verifier,
+                                        entry.id(),
+                                        linked.version(),
+                                        Map.of(
+                                                "status",
+                                                "REGRESSION_VERIFIED",
+                                                "reason",
+                                                "same config rerun",
+                                                "eval_run_id",
+                                                "same-config-regression")));
+        assertEquals(409, unchanged.status());
+        assertEquals("REGRESSION_CONFIG_UNCHANGED", unchanged.code());
+        var regressed = feedback.transition(verifier, entry.id(), linked.version(), regression);
+        assertEquals("REGRESSION_VERIFIED", regressed.data().get("status"));
+        assertEquals("verifier", regressed.data().get("verified_by"));
+        assertEquals("verifier", regressed.data().get("confirmed_by"));
+        assertEquals("verified external facts", regressed.data().get("verification_reason"));
+        assertEquals("scoped-verifier", regressed.data().get("linked_by"));
+        assertEquals("verifier", regressed.data().get("regression_verified_by"));
+        assertEquals("verified regression", regressed.data().get("regression_reason"));
         var wrongTenant =
                 new AuthContext.Principal(
                         "different-tenant", "other", Set.of("QUALITY"), Set.of("*"), Set.of("*"));

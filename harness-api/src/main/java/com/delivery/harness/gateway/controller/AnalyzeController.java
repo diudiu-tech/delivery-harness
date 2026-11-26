@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
+@LegacyV1Api
 @RequestMapping("/api/v1/analyze")
 @RequiredArgsConstructor
 public class AnalyzeController {

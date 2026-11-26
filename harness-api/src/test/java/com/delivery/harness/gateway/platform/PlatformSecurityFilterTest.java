@@ -10,6 +10,7 @@ import com.delivery.harness.gateway.platform.security.ApiSecurityConfiguration;
 import com.delivery.harness.gateway.platform.security.AuthenticationThrottle;
 import com.delivery.harness.gateway.platform.security.BrowserBoundaryFilter;
 import com.delivery.harness.gateway.platform.security.DemoIdentityConfig;
+import com.delivery.harness.gateway.platform.security.LegacyApiHandlerGuard;
 import com.delivery.harness.gateway.platform.security.PlatformErrorHandler;
 import com.delivery.harness.gateway.platform.security.PlatformSecurityFilter;
 import com.delivery.harness.gateway.platform.security.PrincipalAccess;
@@ -25,6 +26,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.servlet.HandlerMapping;
 
 import java.util.Set;
 import java.util.UUID;
@@ -187,6 +189,22 @@ class PlatformSecurityFilterTest {
                     (incoming, outgoing) -> fail("Cross-origin request accepted"));
             assertEquals(403, response.getStatus());
         }
+    }
+
+    @Test
+    void pilotHandlerGuardRefusesAnyResolvedV1RouteWhateverTheRequestSpelling()
+            throws Exception {
+        var guard = new LegacyApiHandlerGuard();
+        var legacy = request("/api/%761/observe/traces", "Bearer secret-a");
+        legacy.setAttribute(
+                HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/api/v1/observe/traces");
+        var response = new MockHttpServletResponse();
+        assertFalse(guard.preHandle(legacy, response, new Object()));
+        assertEquals(410, response.getStatus());
+        assertTrue(response.getContentAsString().contains("V2_REQUIRED"));
+        var scoped = request("/api/v2/session", "Bearer secret-a");
+        scoped.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/api/v2/session");
+        assertTrue(guard.preHandle(scoped, new MockHttpServletResponse(), new Object()));
     }
 
     @Test

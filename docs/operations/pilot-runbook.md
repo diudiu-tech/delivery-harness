@@ -167,6 +167,14 @@ pilot 不播种示例政策、知识或评测数据。分别准备编辑者、�
 | 评测重启中断 | 核对 PROCESS_RESTARTED 与冻结内容，创建新 run；不覆盖原报告 |
 | 磁盘/容量告警 | 限制写入与新增材料，保留证据并扩容；不能清空数据库或启用未交付的删除功能 |
 
+### PostgreSQL 停在 V3 失败
+
+旧版 V3 在 PostgreSQL 上必然失败：`ERROR: default for column "queue_due_at" cannot be cast automatically to type timestamp with time zone`（SQL State 42804）。PostgreSQL DDL 在事务内执行，Flyway 回滚整份 V3，schema 仍为 V2，`flyway_schema_history` 不写入 V3 或失败行。V3 因此在原文件内修正（先移除文本默认值、转换类型、再设置 TIMESTAMPTZ 默认值），没有新增纠正迁移。
+
+处置：停止流量；确认 history 最高成功版本为 2 且没有 V3 或 `success=false` 的行；在隔离副本上用包含修正 V3 的构建启动并核对迁移结果，再升级正式库。无需执行 `flyway repair`，也不要手改 schema 或 history。若 history 中存在 V3 失败行（非标准环境），先在副本上确认 schema 仍为 V2，再由部署负责人决定是否执行 `repair`。
+
+已用旧 V3 成功迁移的 H2 文件库会记录旧校验和 `122558595`。应用仅对 H2 且仅对这一个已知旧值，在校验前将其更新为修正后的校验和并记录 WARN 日志；其他 V3 校验和不匹配仍照常失败。PostgreSQL 回归由 `PostgresMigrationSmokeTest` 在嵌入式真实 PostgreSQL 上覆盖，但不替代目标版本数据库的迁移验收。
+
 业务审计使用 SQL 分页，游标同时编码 created_at 和 event_id。客户端应原样传递 cursor，不按字符串自行排序时间，也不只用时间戳构造下一页；相同时间事件仍需要 ID 边界。案件队列过滤在 SQL LIMIT 前执行，不能仅过滤当前页后宣称没有匹配案件。
 
 策略撤回会阻止新运行继续采用；历史决定和评测按冻结内容核对。应用版本回退前先确认数据库迁移兼容性；若新 schema 不兼容，不直接启动旧二进制连接当前库。先停止流量，在隔离副本验证恢复方案，再由部署负责人选择已验证的版本/配置恢复路径。

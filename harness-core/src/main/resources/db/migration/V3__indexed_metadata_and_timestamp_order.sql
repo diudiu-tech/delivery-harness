@@ -2,8 +2,12 @@ ALTER TABLE platform_records ALTER COLUMN created_at TYPE TIMESTAMP(6) WITH TIME
     USING CAST(created_at AS TIMESTAMP(6) WITH TIME ZONE);
 ALTER TABLE platform_records ALTER COLUMN updated_at TYPE TIMESTAMP(6) WITH TIME ZONE
     USING CAST(updated_at AS TIMESTAMP(6) WITH TIME ZONE);
+-- PostgreSQL cannot cast the V2 text default; USING covers rows only, so swap it explicitly.
+ALTER TABLE platform_records ALTER COLUMN queue_due_at DROP DEFAULT;
 ALTER TABLE platform_records ALTER COLUMN queue_due_at TYPE TIMESTAMP(6) WITH TIME ZONE
     USING CAST(queue_due_at AS TIMESTAMP(6) WITH TIME ZONE);
+ALTER TABLE platform_records ALTER COLUMN queue_due_at
+    SET DEFAULT TIMESTAMP WITH TIME ZONE '9999-01-01 00:00:00+00';
 ALTER TABLE platform_audit_events ALTER COLUMN created_at TYPE TIMESTAMP(6) WITH TIME ZONE
     USING CAST(created_at AS TIMESTAMP(6) WITH TIME ZONE);
 ALTER TABLE platform_records ADD COLUMN case_id VARCHAR(160) NOT NULL DEFAULT '';

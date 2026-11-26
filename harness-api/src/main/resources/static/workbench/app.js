@@ -54,6 +54,7 @@ const labels = {
   PUBLISHED: "已发布",
   DRAFT: "草稿",
   WITHDRAWN: "已撤回",
+  SUPERSEDED: "已被新版本取代",
   DETERMINED: "已形成决定",
   INSUFFICIENT_EVIDENCE: "证据不足",
   OUT_OF_SCOPE: "政策未覆盖",

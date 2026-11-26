@@ -114,7 +114,14 @@ class QualityServiceTest {
                         policies.publish(
                                 actor.tenantId(), conflict.id(), "publisher", conflict.version()));
         var draft =
-                policies.create(actor.tenantId(), actor.userId(), Map.of("rules", List.of(rule)));
+                policies.create(
+                        actor.tenantId(),
+                        actor.userId(),
+                        Map.of(
+                                "rules",
+                                List.of(rule),
+                                "supersedes_policy_ids",
+                                List.of("policy-default-v1")));
         assertEquals(
                 403,
                 assertThrows(
@@ -177,7 +184,9 @@ class QualityServiceTest {
                                 List.of(
                                         intervalRule("HIGH", 17, null),
                                         disabled,
-                                        intervalRule("LOW", 0, 15))));
+                                        intervalRule("LOW", 0, 15)),
+                                "supersedes_policy_ids",
+                                List.of("policy-default-v1")));
         Map<String, Object> report = policies.validate(actor.tenantId(), draft.id());
         assertEquals(true, report.get("valid"));
         var gaps = PolicyService.ruleMaps(report.get("coverage_gaps"));
@@ -1053,6 +1062,8 @@ class QualityServiceTest {
                         "COMPLETED",
                         "hard_gate_passed",
                         true,
+                        "runtime_config_id",
+                        "runtime-fixed-v2",
                         "resolved_config",
                         Map.of(
                                 "policy_scope",
@@ -1096,11 +1107,61 @@ class QualityServiceTest {
                         .status());
         assertEquals(
                 "LINKED_FIX", feedback.require(scopedVerifier, entry.id()).data().get("status"));
-        assertEquals(
-                "REGRESSION_VERIFIED",
-                feedback.transition(verifier, entry.id(), linked.version(), regression)
-                        .data()
-                        .get("status"));
+        assertEquals("verifier", linked.data().get("verified_by"));
+        assertEquals("scoped-verifier", linked.data().get("linked_by"));
+        store.create(
+                actor.tenantId(),
+                "eval_run",
+                "same-config-regression",
+                Map.of(
+                        "status",
+                        "COMPLETED",
+                        "hard_gate_passed",
+                        true,
+                        "runtime_config_id",
+                        "runtime-default-v1",
+                        "resolved_config",
+                        Map.of(
+                                "policy_scope",
+                                Map.of("city_codes", List.of(), "station_ids", List.of()),
+                                "knowledge_snapshot",
+                                List.of()),
+                        "dataset_snapshot",
+                        Map.of(
+                                "samples",
+                                List.of(
+                                        Map.of(
+                                                "source_feedback_id",
+                                                entry.id(),
+                                                "evidence_order",
+                                                Map.of("cityCode", "010", "stationId", "S001"))))),
+                "verifier",
+                "TEST");
+        var unchanged =
+                assertThrows(
+                        PlatformException.class,
+                        () ->
+                                feedback.transition(
+                                        verifier,
+                                        entry.id(),
+                                        linked.version(),
+                                        Map.of(
+                                                "status",
+                                                "REGRESSION_VERIFIED",
+                                                "reason",
+                                                "same config rerun",
+                                                "eval_run_id",
+                                                "same-config-regression")));
+        assertEquals(409, unchanged.status());
+        assertEquals("REGRESSION_CONFIG_UNCHANGED", unchanged.code());
+        var regressed = feedback.transition(verifier, entry.id(), linked.version(), regression);
+        assertEquals("REGRESSION_VERIFIED", regressed.data().get("status"));
+        assertEquals("verifier", regressed.data().get("verified_by"));
+        assertEquals("verifier", regressed.data().get("confirmed_by"));
+        assertEquals("verified external facts", regressed.data().get("verification_reason"));
+        assertEquals("scoped-verifier", regressed.data().get("linked_by"));
+        assertEquals("verifier", regressed.data().get("regression_verified_by"));
+        assertEquals("verified regression", regressed.data().get("regression_reason"));
         var wrongTenant =
                 new AuthContext.Principal(
                         "different-tenant", "other", Set.of("QUALITY"), Set.of("*"), Set.of("*"));

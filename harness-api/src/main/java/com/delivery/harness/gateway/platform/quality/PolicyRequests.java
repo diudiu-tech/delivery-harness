@@ -37,7 +37,9 @@ public final class PolicyRequests {
             @Size(max = 100) @JsonDeserialize(contentUsing = StrictString.class)
                     List<@NotBlank @Size(max = 100) String> stationIds,
             @JsonDeserialize(using = StrictInstant.class) Instant effectiveFrom,
-            @JsonDeserialize(using = StrictInstant.class) Instant effectiveTo)
+            @JsonDeserialize(using = StrictInstant.class) Instant effectiveTo,
+            @Size(max = 20) @JsonDeserialize(contentUsing = StrictString.class)
+                    List<@NotBlank @Size(max = 100) String> supersedesPolicyIds)
             implements QualityRequests.Request {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

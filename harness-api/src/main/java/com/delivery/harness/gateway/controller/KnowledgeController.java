@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
+@LegacyV1Api
 @RequestMapping("/api/v1/knowledge")
 @RequiredArgsConstructor
 public class KnowledgeController {

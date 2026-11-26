@@ -194,6 +194,108 @@ class ExecutionRecoveryTest {
         assertFalse(page.cursor().isEmpty());
     }
 
+    @Test
+    void heartbeatMovesOnlyTheFencedLeaseAndRecoveryHonoursIt() {
+        PlatformStore store = PlatformTestDatabase.memory();
+        Instant deadline = Instant.now().plusSeconds(120);
+        store.transact(
+                tx -> {
+                    tx.create(
+                            "tenant",
+                            "case",
+                            "case-1",
+                            Map.of("status", "ANALYZING", "current_execution_id", "run"),
+                            "agent",
+                            "CASE_CREATED");
+                    tx.create(
+                            "tenant",
+                            "execution",
+                            "run",
+                            Map.of(
+                                    "status",
+                                    "RUNNING",
+                                    "fence",
+                                    "live",
+                                    "case_id",
+                                    "case-1",
+                                    "deadline_at",
+                                    deadline.toString(),
+                                    "lease_until",
+                                    Instant.now().minusSeconds(60).toString()),
+                            "agent",
+                            "EXECUTION_STARTED");
+                    return null;
+                });
+        service = service(store);
+        var before = store.require("tenant", "execution", "run");
+        int audits = store.audits("tenant").size();
+        ReflectionTestUtils.invokeMethod(service, "renew", "tenant", "run", "stale", deadline);
+        assertEquals(before.data(), store.require("tenant", "execution", "run").data());
+        ReflectionTestUtils.invokeMethod(service, "renew", "tenant", "run", "live", deadline);
+        var renewed = store.require("tenant", "execution", "run");
+        assertEquals(before.version(), renewed.version());
+        assertEquals(before.updatedAt(), renewed.updatedAt());
+        assertEquals(audits, store.audits("tenant").size());
+        assertTrue(Instant.parse(renewed.data().get("lease_until").toString()).isAfter(Instant.now()));
+        assertNull(ReflectionTestUtils.invokeMethod(service, "recoverLease", "tenant", "run"));
+        assertEquals("live", store.require("tenant", "execution", "run").data().get("fence"));
+        assertTrue(
+                store.<Boolean>transact(
+                        tx ->
+                                tx.renewLease(
+                                        "tenant",
+                                        "execution",
+                                        "run",
+                                        "RUNNING",
+                                        "live",
+                                        Instant.now().minusSeconds(1))));
+        PlatformStore.Entity recovered =
+                ReflectionTestUtils.invokeMethod(service, "recoverLease", "tenant", "run");
+        assertEquals("QUEUED", recovered.data().get("status"));
+        assertEquals(before.version() + 1, recovered.version());
+        assertFalse(
+                store.<Boolean>transact(
+                        tx ->
+                                tx.renewLease(
+                                        "tenant",
+                                        "execution",
+                                        "run",
+                                        "RUNNING",
+                                        "live",
+                                        Instant.now().plusSeconds(5))));
+        store.create(
+                "tenant",
+                "execution",
+                "cancelled",
+                Map.of(
+                        "status",
+                        "RUNNING",
+                        "fence",
+                        "worker",
+                        "case_id",
+                        "case-1",
+                        "deadline_at",
+                        deadline.toString(),
+                        "lease_until",
+                        Instant.now().plusSeconds(5).toString()),
+                "agent",
+                "EXECUTION_STARTED");
+        var stopped = service.cancel(actor, "cancelled");
+        assertFalse(
+                store.<Boolean>transact(
+                        tx ->
+                                tx.renewLease(
+                                        "tenant",
+                                        "execution",
+                                        "cancelled",
+                                        "RUNNING",
+                                        "worker",
+                                        Instant.now().plusSeconds(60))));
+        var after = store.require("tenant", "execution", "cancelled");
+        assertEquals("CANCELLED", after.data().get("status"));
+        assertEquals(stopped.data().get("lease_until"), after.data().get("lease_until"));
+    }
+
     private ExecutionService service(PlatformStore store) {
         OrderSource orders = new OrderSource("demo", "", "", "");
         return service(store, new CaseService(store, orders), orders, new WorkflowEngine());
@@ -275,9 +377,11 @@ class ExecutionRecoveryTest {
                                 if (execution && "executeQuery".equals(method.getName())) {
                                     if (inMethod("finish") && sql.endsWith(" FOR UPDATE"))
                                         finishLocked.set(true);
-                                    if (heartbeatThread() && inMethod("renew"))
-                                        heartbeatAttempted.countDown();
                                 }
+                                if (execution
+                                        && method.getName().startsWith("execute")
+                                        && heartbeatThread()
+                                        && inMethod("renew")) heartbeatAttempted.countDown();
                                 if (execution
                                         && inMethod("finish")
                                         && "executeUpdate".equals(method.getName())
@@ -292,7 +396,11 @@ class ExecutionRecoveryTest {
                                                         "renew",
                                                         tenant,
                                                         id,
-                                                        task.data().get("fence").toString());
+                                                        task.data().get("fence").toString(),
+                                                        Instant.parse(
+                                                                task.data()
+                                                                        .get("deadline_at")
+                                                                        .toString()));
                                             });
                                     assertTrue(heartbeatAttempted.await(2, TimeUnit.SECONDS));
                                     if (!finishLocked.get()) {

@@ -15,7 +15,8 @@ import java.util.Map;
 
 /**
  * Portable one-time migration; customer JSON is never interpreted by a database-specific JSON
- * dialect.
+ * dialect. Legacy payloads may carry inline attachment bodies, so every scan streams one row at a
+ * time (Flyway's migration transaction lets PostgreSQL honour the cursor fetch size).
  */
 public class V4__backfill_metadata_projections extends BaseJavaMigration {
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() {};
@@ -25,21 +26,52 @@ public class V4__backfill_metadata_projections extends BaseJavaMigration {
         Connection connection = context.getConnection();
         backfill(connection, true);
         backfill(connection, false);
-        try (PreparedStatement update =
-                connection.prepareStatement(
-                        "UPDATE platform_audit_events SET case_id=COALESCE((SELECT r.case_id FROM"
-                                + " platform_records r WHERE"
-                                + " r.tenant_id=platform_audit_events.tenant_id AND"
-                                + " r.record_id=platform_audit_events.resource_id LIMIT"
-                                + " 1),''),scope_city=COALESCE((SELECT r.scope_city FROM"
-                                + " platform_records r WHERE"
-                                + " r.tenant_id=platform_audit_events.tenant_id AND"
-                                + " r.record_id=platform_audit_events.resource_id LIMIT"
-                                + " 1),''),scope_station=COALESCE((SELECT r.scope_station FROM"
-                                + " platform_records r WHERE"
-                                + " r.tenant_id=platform_audit_events.tenant_id AND"
-                                + " r.record_id=platform_audit_events.resource_id LIMIT 1),'')")) {
-            update.executeUpdate();
+        backfillAudits(connection);
+    }
+
+    /**
+     * Record writes audit their kind, so scope comes from the exact (tenant, kind, id) primary key
+     * row; ids shared across kinds can no longer pick an arbitrary record. Streams audit rows
+     * instead of one correlated tenant-wide subquery per column per event.
+     */
+    private void backfillAudits(Connection connection) throws SQLException {
+        try (PreparedStatement query =
+                        connection.prepareStatement(
+                                "SELECT event_id,tenant_id,resource_id,payload FROM"
+                                        + " platform_audit_events");
+                PreparedStatement exact =
+                        connection.prepareStatement(
+                                "SELECT case_id,scope_city,scope_station FROM platform_records"
+                                        + " WHERE tenant_id=? AND record_id=? AND kind=?");
+                // Legacy rows without a kind keep the old behaviour, made deterministic.
+                PreparedStatement untyped =
+                        connection.prepareStatement(
+                                "SELECT case_id,scope_city,scope_station FROM platform_records"
+                                        + " WHERE tenant_id=? AND record_id=? ORDER BY CASE WHEN"
+                                        + " kind='case' THEN 0 ELSE 1 END,kind LIMIT 1");
+                PreparedStatement update =
+                        connection.prepareStatement(
+                                "UPDATE platform_audit_events SET"
+                                        + " case_id=?,scope_city=?,scope_station=? WHERE"
+                                        + " event_id=?")) {
+            query.setFetchSize(1);
+            try (ResultSet rows = query.executeQuery()) {
+                while (rows.next()) {
+                    Object kind = JsonUtil.fromJson(rows.getString("payload"), MAP).get("kind");
+                    PreparedStatement lookup = kind == null ? untyped : exact;
+                    lookup.setString(1, rows.getString("tenant_id"));
+                    lookup.setString(2, rows.getString("resource_id"));
+                    if (kind != null) lookup.setString(3, kind.toString());
+                    try (ResultSet target = lookup.executeQuery()) {
+                        if (!target.next()) continue;
+                        update.setString(1, target.getString(1));
+                        update.setString(2, target.getString(2));
+                        update.setString(3, target.getString(3));
+                        update.setString(4, rows.getString("event_id"));
+                        update.executeUpdate();
+                    }
+                }
+            }
         }
     }
 
@@ -48,30 +80,7 @@ public class V4__backfill_metadata_projections extends BaseJavaMigration {
                 "SELECT tenant_id,kind,record_id,payload FROM platform_records WHERE kind"
                         + (cases ? "='case'" : "<>'case'");
         try (PreparedStatement query = connection.prepareStatement(sql);
-                ResultSet rows = query.executeQuery()) {
-            while (rows.next()) {
-                String tenant = rows.getString("tenant_id");
-                String kind = rows.getString("kind");
-                String id = rows.getString("record_id");
-                Map<String, Object> data =
-                        new LinkedHashMap<>(JsonUtil.fromJson(rows.getString("payload"), MAP));
-                String caseId = cases ? id : text(data, "case_id");
-                Map<String, Object> parent =
-                        caseId.isEmpty() || cases ? Map.of() : parent(connection, tenant, caseId);
-                Object content = data.remove("content_base64");
-                if ("material".equals(kind) && content instanceof String base64) {
-                    try (PreparedStatement body =
-                            connection.prepareStatement(
-                                    "INSERT INTO platform_material_content"
-                                            + " (tenant_id,material_id,content_base64) VALUES"
-                                            + " (?,?,?)")) {
-                        body.setString(1, tenant);
-                        body.setString(2, id);
-                        body.setString(3, base64);
-                        body.executeUpdate();
-                    }
-                }
-                try (PreparedStatement update =
+                PreparedStatement update =
                         connection.prepareStatement(
                                 String.join(
                                         "",
@@ -79,6 +88,32 @@ public class V4__backfill_metadata_projections extends BaseJavaMigration {
                                         "case_id=?,order_id=?,complaint_type=?,",
                                         "record_status=?,record_state=?,scope_city=?,scope_station=?",
                                         " WHERE tenant_id=? AND kind=? AND record_id=?"))) {
+            query.setFetchSize(1);
+            try (ResultSet rows = query.executeQuery()) {
+                while (rows.next()) {
+                    String tenant = rows.getString("tenant_id");
+                    String kind = rows.getString("kind");
+                    String id = rows.getString("record_id");
+                    Map<String, Object> data =
+                            new LinkedHashMap<>(JsonUtil.fromJson(rows.getString("payload"), MAP));
+                    String caseId = cases ? id : text(data, "case_id");
+                    Map<String, Object> parent =
+                            caseId.isEmpty() || cases
+                                    ? Map.of()
+                                    : parent(connection, tenant, caseId);
+                    Object content = data.remove("content_base64");
+                    if ("material".equals(kind) && content instanceof String base64) {
+                        try (PreparedStatement body =
+                                connection.prepareStatement(
+                                        "INSERT INTO platform_material_content"
+                                                + " (tenant_id,material_id,content_base64) VALUES"
+                                                + " (?,?,?)")) {
+                            body.setString(1, tenant);
+                            body.setString(2, id);
+                            body.setString(3, base64);
+                            body.executeUpdate();
+                        }
+                    }
                     update.setString(1, JsonUtil.toJson(data));
                     update.setString(2, caseId);
                     update.setString(3, fallback(data, parent, "order_id"));

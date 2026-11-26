@@ -580,6 +580,43 @@ class ExecutionServiceTest {
     }
 
     @Test
+    void reviewRiskLevelUsesTheCaseVocabularyInsteadOfTheReviewFlag() throws Exception {
+        engine.registerHandler(
+                "compensation_suggestion",
+                (input, execution) ->
+                        Map.of(
+                                "authoritative_amount",
+                                20,
+                                "decision_status",
+                                "DETERMINED",
+                                "needs_human_review",
+                                false));
+        var c = cases.create(actor, Map.of("order_id", "RISK-1", "complaint_type", "OVERTIME"));
+        var task =
+                executions.submit(
+                        actor,
+                        Map.of(
+                                "case_id",
+                                c.id(),
+                                "scenario",
+                                "compensation_suggestion",
+                                "expected_case_version",
+                                c.version()),
+                        "review-risk");
+        awaitTerminal(task.id());
+        var decided = store.require(actor.tenantId(), "case", c.id());
+        assertEquals("HIGH", decided.data().get("risk_level"));
+        var review =
+                store.require(
+                        actor.tenantId(), "review", decided.data().get("review_id").toString());
+        assertEquals("HIGH", review.data().get("risk_level"));
+        assertEquals(false, review.data().get("needs_human_review"));
+        assertEquals(
+                1,
+                store.query(actor.tenantId(), "review", c.id(), Set.of(), null, "", 10).size());
+    }
+
+    @Test
     void unexpectedWorkerFailuresAreObservableInsteadOfHiddenInsideFuture() throws Exception {
         executions.stop();
         DataSource database =

@@ -16,6 +16,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -62,6 +63,12 @@ public class PlatformStore {
     public record Page(List<Entity> items, String cursor) {}
 
     public record AuditPage(List<Map<String, Object>> items, String cursor) {}
+
+    /** Case and scope projected for a record write; audit rows reuse it instead of re-reading. */
+    private record Projection(
+            String caseId, String city, String station, Map<String, Object> parent) {
+        private static final Projection NONE = new Projection("", "", "", Map.of());
+    }
 
     public Optional<Entity> get(String tenant, String kind, String id) {
         return read(tx -> tx.get(tenant, kind, id));
@@ -544,7 +551,8 @@ public class PlatformStore {
                         + " (tenant_id,kind,record_id,record_version,created_at,updated_at,payload,summary_payload,"
                         + " scope_city, scope_station, queue_priority, queue_due_at, case_id,"
                         + " order_id, complaint_type, record_status, record_state, risk_level,"
-                        + " assignee) VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                        + " assignee, lease_until, record_fence)"
+                        + " VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, tenant);
                 statement.setString(2, kind);
@@ -553,13 +561,14 @@ public class PlatformStore {
                 statement.setObject(5, now);
                 statement.setString(6, JsonUtil.toJson(data));
                 statement.setString(7, JsonUtil.toJson(RecordSummaries.of(kind, data)));
-                project(statement, 8, tenant, kind, id, data);
+                Projection projection = project(statement, 8, tenant, kind, id, data);
                 statement.executeUpdate();
-                audit(
+                insertAudit(
                         tenant,
                         actor,
                         action,
                         id,
+                        projection,
                         Map.of("kind", kind, "after_version", 1, "after_hash", hash(data)));
                 return require(tenant, kind, id);
             } catch (SQLException failure) {
@@ -592,27 +601,29 @@ public class PlatformStore {
                     "UPDATE platform_records SET"
                         + " record_version=?,updated_at=?,payload=?,summary_payload=?,scope_city=?,"
                         + "scope_station=?,queue_priority=?,queue_due_at=?,case_id=?,order_id=?,"
-                        + "complaint_type=?,record_status=?,record_state=?,risk_level=?,assignee=?"
+                        + "complaint_type=?,record_status=?,record_state=?,risk_level=?,assignee=?,"
+                        + "lease_until=?,record_fence=?"
                         + " WHERE tenant_id=? AND kind=? AND record_id=? AND record_version=?";
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setLong(1, nextVersion);
                 statement.setObject(2, now());
                 statement.setString(3, JsonUtil.toJson(data));
                 statement.setString(4, JsonUtil.toJson(RecordSummaries.of(kind, data)));
-                project(statement, 5, tenant, kind, id, data);
-                statement.setString(16, tenant);
-                statement.setString(17, kind);
-                statement.setString(18, id);
-                statement.setLong(19, expectedVersion);
+                Projection projection = project(statement, 5, tenant, kind, id, data);
+                statement.setString(18, tenant);
+                statement.setString(19, kind);
+                statement.setString(20, id);
+                statement.setLong(21, expectedVersion);
                 if (statement.executeUpdate() != 1) {
                     throw PlatformException.conflict(
                             "Concurrent update; refresh the current version");
                 }
-                audit(
+                insertAudit(
                         tenant,
                         actor,
                         action,
                         id,
+                        projection,
                         Map.of(
                                 "kind",
                                 kind,
@@ -630,7 +641,7 @@ public class PlatformStore {
             }
         }
 
-        private void project(
+        private Projection project(
                 PreparedStatement statement,
                 int first,
                 String tenant,
@@ -638,22 +649,66 @@ public class PlatformStore {
                 String id,
                 Map<String, Object> data)
                 throws SQLException {
+            Projection projection = projection(tenant, kind, id, data);
+            statement.setString(first, projection.city());
+            statement.setString(first + 1, projection.station());
+            statement.setInt(first + 2, priority(data));
+            statement.setObject(first + 3, due(data));
+            statement.setString(first + 4, projection.caseId());
+            statement.setString(first + 5, textOr(data, projection.parent(), "order_id"));
+            statement.setString(first + 6, textOr(data, projection.parent(), "complaint_type"));
+            statement.setString(first + 7, text(data, "status"));
+            statement.setString(first + 8, text(data, "state"));
+            statement.setString(first + 9, text(data, "risk_level"));
+            statement.setString(first + 10, text(data, "assignee"));
+            statement.setObject(first + 11, leaseUntil(data), Types.TIMESTAMP_WITH_TIMEZONE);
+            statement.setString(first + 12, text(data, "fence"));
+            return projection;
+        }
+
+        private Projection projection(
+                String tenant, String kind, String id, Map<String, Object> data) {
             String caseId = "case".equals(kind) ? id : text(data, "case_id");
             Map<String, Object> parent =
                     caseId.isEmpty() || "case".equals(kind)
                             ? Map.of()
                             : get(tenant, "case", caseId).map(Entity::data).orElse(Map.of());
-            statement.setString(first, textOr(data, parent, "city_code"));
-            statement.setString(first + 1, textOr(data, parent, "station_id"));
-            statement.setInt(first + 2, priority(data));
-            statement.setObject(first + 3, due(data));
-            statement.setString(first + 4, caseId);
-            statement.setString(first + 5, textOr(data, parent, "order_id"));
-            statement.setString(first + 6, textOr(data, parent, "complaint_type"));
-            statement.setString(first + 7, text(data, "status"));
-            statement.setString(first + 8, text(data, "state"));
-            statement.setString(first + 9, text(data, "risk_level"));
-            statement.setString(first + 10, text(data, "assignee"));
+            return new Projection(
+                    caseId,
+                    textOr(data, parent, "city_code"),
+                    textOr(data, parent, "station_id"),
+                    parent);
+        }
+
+        /**
+         * Extends a fenced lease without rewriting the payload, bumping the version, or auditing;
+         * returns false when the record left {@code status} or another worker owns the fence.
+         */
+        public boolean renewLease(
+                String tenant,
+                String kind,
+                String id,
+                String status,
+                String fence,
+                Instant leaseUntil) {
+            try (PreparedStatement statement =
+                    connection.prepareStatement(
+                            "UPDATE platform_records SET lease_until=? WHERE tenant_id=? AND"
+                                    + " kind=? AND record_id=? AND record_status=? AND"
+                                    + " record_fence=?")) {
+                statement.setObject(
+                        1,
+                        leaseUntil.truncatedTo(ChronoUnit.MICROS).atOffset(ZoneOffset.UTC),
+                        Types.TIMESTAMP_WITH_TIMEZONE);
+                statement.setString(2, tenant);
+                statement.setString(3, kind);
+                statement.setString(4, id);
+                statement.setString(5, status);
+                statement.setString(6, fence);
+                return statement.executeUpdate() == 1;
+            } catch (SQLException failure) {
+                throw databaseFailure(failure);
+            }
         }
 
         public void putMaterialContent(
@@ -671,6 +726,7 @@ public class PlatformStore {
                         tenant,
                         actor,
                         "MATERIAL_CONTENT_FROZEN",
+                        "material",
                         materialId,
                         Map.of("size_bytes", bytes.length, "content_hash", sha256(bytes)));
             } catch (SQLException failure) {
@@ -714,33 +770,43 @@ public class PlatformStore {
             }
         }
 
+        /** Audits a resource that is not a platform record (for example a denied request). */
         public void audit(
                 String tenant,
                 String actor,
                 String action,
                 String resourceId,
                 Map<String, Object> details) {
+            insertAudit(tenant, actor, action, resourceId, Projection.NONE, details);
+        }
+
+        /** Audits a platform record, scoped by the case and scope of that exact record. */
+        public void audit(
+                String tenant,
+                String actor,
+                String action,
+                String kind,
+                String resourceId,
+                Map<String, Object> details) {
+            Projection projection =
+                    get(tenant, kind, resourceId)
+                            .map(target -> projection(tenant, kind, resourceId, target.data()))
+                            .orElse(Projection.NONE);
+            insertAudit(tenant, actor, action, resourceId, projection, details);
+        }
+
+        private void insertAudit(
+                String tenant,
+                String actor,
+                String action,
+                String resourceId,
+                Projection projection,
+                Map<String, Object> details) {
             String sql =
                     "INSERT INTO platform_audit_events"
                             + " (event_id,tenant_id,actor_id,action,resource_id,created_at,payload,"
                             + "case_id,scope_city,scope_station)"
                             + " VALUES (?,?,?,?,?,?,?,?,?,?)";
-            List<Entity> targets =
-                    select(
-                            "SELECT * FROM platform_records WHERE tenant_id=? AND record_id=? LIMIT"
-                                    + " 1",
-                            List.of(tenant, resourceId));
-            Map<String, Object> target = targets.isEmpty() ? Map.of() : targets.get(0).data();
-            String caseId =
-                    targets.isEmpty()
-                            ? ""
-                            : "case".equals(targets.get(0).kind())
-                                    ? resourceId
-                                    : text(target, "case_id");
-            Map<String, Object> parent =
-                    caseId.isEmpty()
-                            ? Map.of()
-                            : get(tenant, "case", caseId).map(Entity::data).orElse(target);
             Map<String, Object> auditDetails = new LinkedHashMap<>(details);
             String trace = TraceUtil.getTraceId();
             if (trace != null) {
@@ -754,9 +820,9 @@ public class PlatformStore {
                 statement.setString(5, resourceId);
                 statement.setObject(6, now());
                 statement.setString(7, JsonUtil.toJson(auditDetails));
-                statement.setString(8, caseId);
-                statement.setString(9, textOr(target, parent, "city_code"));
-                statement.setString(10, textOr(target, parent, "station_id"));
+                statement.setString(8, projection.caseId());
+                statement.setString(9, projection.city());
+                statement.setString(10, projection.station());
                 statement.executeUpdate();
             } catch (SQLException failure) {
                 throw databaseFailure(failure);
@@ -926,7 +992,26 @@ public class PlatformStore {
         return data.get(key) == null ? text(fallback, key) : text(data, key);
     }
 
+    private static OffsetDateTime leaseUntil(Map<String, Object> data) {
+        Object lease = data.get("lease_until");
+        return lease == null
+                ? null
+                : Instant.parse(lease.toString())
+                        .truncatedTo(ChronoUnit.MICROS)
+                        .atOffset(ZoneOffset.UTC);
+    }
+
     private static Entity entity(ResultSet rows) throws SQLException {
+        Map<String, Object> data = JsonUtil.fromJson(rows.getString("payload"), MAP);
+        if (data.get("lease_until") != null) {
+            // Renewals only move the column; expose the later lease so callers that write the
+            // payload back never shorten a live lease (summary payloads never carry this field).
+            OffsetDateTime column = rows.getObject("lease_until", OffsetDateTime.class);
+            if (column != null && column.isAfter(leaseUntil(data))) {
+                data = new LinkedHashMap<>(data);
+                data.put("lease_until", column.toInstant().toString());
+            }
+        }
         return new Entity(
                 rows.getString("record_id"),
                 rows.getString("tenant_id"),
@@ -934,7 +1019,7 @@ public class PlatformStore {
                 rows.getLong("record_version"),
                 time(rows, "created_at"),
                 time(rows, "updated_at"),
-                JsonUtil.fromJson(rows.getString("payload"), MAP));
+                data);
     }
 
     private static String time(ResultSet rows, String field) throws SQLException {

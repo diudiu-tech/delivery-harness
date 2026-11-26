@@ -49,7 +49,15 @@ public final class RuntimeRequests {
             @JsonDeserialize(using = StrictBoolean.class) Boolean deterministicOnly,
             @Pattern(regexp = "2\\.0") @JsonDeserialize(using = StrictString.class)
                     String schemaVersion,
-            @Valid Pricing pricing)
+            @Valid Pricing pricing,
+            @Size(min = 1, max = 2) @JsonDeserialize(contentUsing = StrictString.class)
+                    List<
+                                    @NotBlank
+                                    @Pattern(
+                                            regexp =
+                                                    "abnormal_order_analysis|compensation_suggestion")
+                                    String>
+                            scenarios)
             implements QualityRequests.Request {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

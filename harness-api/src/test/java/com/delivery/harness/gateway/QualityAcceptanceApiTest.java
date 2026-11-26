@@ -92,16 +92,97 @@ class QualityAcceptanceApiTest {
                 "STORED_OUTPUT_RESCORING", QualityData.map(replay.get("data")).get("replay_mode"));
         var reportBody = Map.of("expected_version", config.get("version"), "eval_run_id", runId);
         postJson("/runtime-configs/" + configId + "/publish", reportBody, null, 403);
-        var published =
+        // The config author initiated this run, so it cannot gate the author's own release.
+        var selfGated =
                 postJson(
                         "/runtime-configs/" + configId + "/publish",
                         reportBody,
                         "quality-publisher",
+                        403);
+        assertEquals("SEPARATION_OF_DUTIES", selfGated.get("code"));
+        var independent =
+                postJson(
+                        "/eval/runs",
+                        Map.of(
+                                "dataset_version",
+                                "synthetic-smoke-v1",
+                                "runtime_config_id",
+                                configId),
+                        "quality-publisher",
+                        202);
+        String independentRun = independent.get("id").toString();
+        assertEquals(
+                "COMPLETED", QualityData.map(await(independentRun).get("data")).get("status"));
+        var published =
+                postJson(
+                        "/runtime-configs/" + configId + "/publish",
+                        Map.of(
+                                "expected_version",
+                                config.get("version"),
+                                "eval_run_id",
+                                independentRun),
+                        "quality-publisher",
                         200);
-        assertEquals("PUBLISHED", QualityData.map(published.get("data")).get("state"));
+        Map<String, Object> publishedData = QualityData.map(published.get("data"));
+        assertEquals("PUBLISHED", publishedData.get("state"));
+        assertEquals("publisher", publishedData.get("published_by"));
         assertEquals(
                 QualityData.map(config.get("data")).get("config_hash"),
-                QualityData.map(published.get("data")).get("config_hash"));
+                publishedData.get("config_hash"));
+        var route =
+                postJson(
+                        "/runtime-routes",
+                        Map.of(
+                                "scenario",
+                                "compensation_suggestion",
+                                "primary_config_id",
+                                configId,
+                                "fallback_config_id",
+                                configId,
+                                "rollout_percent",
+                                100),
+                        "quality-publisher",
+                        200);
+        var withdrawRoute =
+                Map.of("expected_version", route.get("version"), "reason", "rollback");
+        postJson("/runtime-routes/" + route.get("id") + "/withdraw", withdrawRoute, null, 403);
+        assertEquals(
+                "WITHDRAWN",
+                QualityData.map(
+                                postJson(
+                                                "/runtime-routes/" + route.get("id") + "/withdraw",
+                                                withdrawRoute,
+                                                "quality-publisher",
+                                                200)
+                                        .get("data"))
+                        .get("state"));
+        var withdrawConfig =
+                Map.of("expected_version", published.get("version"), "reason", "rollback");
+        postJson("/runtime-configs/" + configId + "/withdraw", withdrawConfig, null, 403);
+        postJson(
+                "/runtime-configs/" + configId + "/withdraw",
+                Map.of("expected_version", published.get("version")),
+                "quality-publisher",
+                400);
+        var withdrawn =
+                postJson(
+                        "/runtime-configs/" + configId + "/withdraw",
+                        withdrawConfig,
+                        "quality-publisher",
+                        200);
+        assertEquals("WITHDRAWN", QualityData.map(withdrawn.get("data")).get("state"));
+        assertEquals(
+                "RUNTIME_NOT_PUBLISHED",
+                postJson(
+                                "/runtime-configs/" + configId + "/withdraw",
+                                Map.of(
+                                        "expected_version",
+                                        withdrawn.get("version"),
+                                        "reason",
+                                        "again"),
+                                "quality-publisher",
+                                409)
+                        .get("code"));
         getJson("/eval/runs/" + runId, "quality-other", 404);
         postJson(
                 "/eval/runs",

@@ -590,8 +590,8 @@ public class PlatformStore {
                         "Completed snapshots are immutable; create a new version");
             }
             Entity before = require(tenant, kind, id);
-            if ("runtime_config".equals(kind)) {
-                validateRuntimePublication(before, data);
+            if ("runtime_config".equals(kind) || "runtime_route".equals(kind)) {
+                validateRuntimePublication(kind, before, data);
             }
             if (before.version() != expectedVersion) {
                 throw PlatformException.conflict("Record changed; refresh the current version");
@@ -1037,21 +1037,31 @@ public class PlatformStore {
         }
     }
 
-    private static void validateRuntimePublication(Entity before, Map<String, Object> data) {
+    /** Runtime configs: CANDIDATE→PUBLISHED→WITHDRAWN; routes: PUBLISHED→WITHDRAWN. */
+    private static void validateRuntimePublication(
+            String kind, Entity before, Map<String, Object> data) {
+        String from = text(before.data(), "state");
+        String to = text(data, "state");
+        List<String> metadata;
+        boolean allowed;
+        if ("runtime_config".equals(kind) && "CANDIDATE".equals(from) && "PUBLISHED".equals(to)) {
+            metadata = List.of("state", "evaluation_run_id", "published_by", "published_at");
+            allowed = data.get("evaluation_run_id") != null;
+        } else if ("PUBLISHED".equals(from) && "WITHDRAWN".equals(to)) {
+            metadata = List.of("state", "withdrawn_by", "withdrawn_at", "withdrawal_reason");
+            allowed = !text(data, "withdrawal_reason").isBlank();
+        } else {
+            metadata = List.of();
+            allowed = false;
+        }
         Map<String, Object> original = new LinkedHashMap<>(before.data());
         Map<String, Object> updated = new LinkedHashMap<>(data);
-        for (String metadata :
-                List.of("state", "evaluation_run_id", "published_by", "published_at")) {
-            original.remove(metadata);
-            updated.remove(metadata);
-        }
-        if (!"CANDIDATE".equals(before.data().get("state"))
-                || !"PUBLISHED".equals(data.get("state"))
-                || data.get("evaluation_run_id") == null
-                || !hash(original).equals(hash(updated))) {
+        metadata.forEach(original::remove);
+        metadata.forEach(updated::remove);
+        if (!allowed || !hash(original).equals(hash(updated))) {
             throw PlatformException.conflict(
-                    "Runtime executable contents are immutable; only candidate publication is"
-                            + " allowed");
+                    "Runtime executable contents are immutable; only candidate publication and"
+                            + " published withdrawal are allowed");
         }
     }
 

@@ -104,6 +104,7 @@ public class QualityEvalService {
             sample.put("evidence_order", JsonUtil.toMap(order));
             sample.put("evidence_hash", QualityData.hash(JsonUtil.toMap(order)));
             sample.put("data_mode", "SYNTHETIC");
+            sample.put("evidence_provenance", "SERVER_SEED");
             sample.put(
                     "expected_output",
                     "compensation_suggestion".equals(evalCase.getScenario())
@@ -128,6 +129,8 @@ public class QualityEvalService {
         data.put("samples", samples);
         data.put("split", "SYNTHETIC_SMOKE");
         data.put("dataset_hash", QualityData.hash(samples));
+        data.put("created_by", "SYSTEM");
+        data.put("provenance", "SERVER_DERIVED");
         data.put(
                 "label_note",
                 "Synthetic contract regression; not an estimate of online responsibility accuracy");
@@ -162,11 +165,14 @@ public class QualityEvalService {
             String orderId = QualityData.required(input, "order_id", 120);
             OrderInfo order;
             String mode;
+            // Provenance is always server-set; a client value is overwritten, never trusted.
+            String provenance;
             if (sample.containsKey("evidence_order")) {
                 order =
                         JsonUtil.fromMap(
                                 QualityData.map(sample.get("evidence_order")), OrderInfo.class);
                 mode = QualityData.text(sample, "data_mode", "LABELLED_FROZEN");
+                provenance = "CLIENT_SUPPLIED";
                 if (!orderId.equals(order.getOrderId())) {
                     throw new IllegalArgumentException("Input order and evidence order must match");
                 }
@@ -175,6 +181,7 @@ public class QualityEvalService {
                 OrderSource.Snapshot snapshot = orders.query(actor, orderId);
                 order = snapshot.order();
                 mode = String.valueOf(snapshot.metadata().get("source_type"));
+                provenance = "SERVER_SNAPSHOT";
             }
             sample.put("evidence_order", JsonUtil.toMap(order));
             sample.put("evidence_hash", QualityData.hash(JsonUtil.toMap(order)));
@@ -182,6 +189,7 @@ public class QualityEvalService {
                     "sample_id",
                     QualityData.text(sample, "sample_id", UUID.randomUUID().toString()));
             sample.put("data_mode", mode);
+            sample.put("evidence_provenance", provenance);
             if (sample.get("source_feedback_id") != null) {
                 PlatformStore.Entity feedback =
                         store.require(
@@ -203,6 +211,7 @@ public class QualityEvalService {
                     throw new IllegalArgumentException(
                             "Feedback sample must use the exact associated evidence snapshot");
                 }
+                sample.put("evidence_provenance", "VERIFIED_FEEDBACK_SNAPSHOT");
             }
             String dedup = orderId + ":" + sample.get("evidence_hash");
             if (!evidenceIds.add(dedup)) {
@@ -220,6 +229,16 @@ public class QualityEvalService {
         data.put("samples", samples);
         data.put("split", split);
         data.put("dataset_hash", QualityData.hash(samples));
+        data.put("created_by", actor.userId());
+        data.put(
+                "provenance",
+                samples.stream()
+                                .allMatch(
+                                        s ->
+                                                RuntimeConfigService.serverEvidence(
+                                                        s.get("evidence_provenance")))
+                        ? "SERVER_DERIVED"
+                        : "CLIENT_SUPPLIED");
         return store.create(
                 actor.tenantId(),
                 DATASET,
@@ -471,6 +490,8 @@ public class QualityEvalService {
         data.put("replay_of", id);
         data.put("replay_mode", "STORED_OUTPUT_RESCORING");
         data.put("status", "RUNNING");
+        // The release gate checks initiator independence, so record who started this run.
+        data.put("created_by", actor.userId());
         String newId = UUID.randomUUID().toString();
         store.transact(
                 tx -> {
@@ -519,6 +540,7 @@ public class QualityEvalService {
         next.put("status", "QUEUED");
         next.put("completed", 0);
         next.put("retry_of", id);
+        next.put("created_by", actor.userId());
         next.put("trace_id", UUID.randomUUID().toString());
         next.remove("finished_at");
         next.remove("error_code");

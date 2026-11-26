@@ -144,7 +144,10 @@ Lists contain metadata; authorized version details contain the source text.
 
 Runtime versions freeze policy/knowledge/model/task settings and their hashes.
 Publication requires an independent identity and matching passing evaluation
-evidence. Pilot execution fails closed without a published version. One bundle
+evidence on a gate-eligible, server-derived dataset whose author and evaluation
+initiator also differ from the config author (see the
+[v2 API notes](docs/api/v2.md#runtime-publication-gate)). Published configs and
+routes can be withdrawn. Pilot execution fails closed without a published version. One bundle
 is limited to 512 KiB. Configuration visibility includes every embedded knowledge
 scope as well as policy scope; a broad policy cannot expose a restricted document.
 Lists return scope-preserving metadata, and authorized detail reads return the

@@ -746,22 +746,7 @@ class QualityServiceTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> configs.publish(actor.tenantId(), config.id(), "publisher", 1, bad));
-        var report =
-                store.create(
-                        actor.tenantId(),
-                        QualityEvalService.RUN,
-                        "good-run",
-                        Map.of(
-                                "status",
-                                "COMPLETED",
-                                "hard_gate_passed",
-                                true,
-                                "runtime_config_id",
-                                config.id(),
-                                "resolved_config",
-                                config.data()),
-                        "SYSTEM",
-                        "TEST");
+        var report = GateReports.of(store, config).everyScenario(20).store();
         var published = configs.publish(actor.tenantId(), config.id(), "publisher", 1, report);
         assertEquals(config.data().get("config_hash"), published.data().get("config_hash"));
         assertEquals("PUBLISHED", configs.resolve(actor.tenantId(), config.id()).get("state"));
@@ -904,6 +889,60 @@ class QualityServiceTest {
                             evaluator.createDataset(
                                     actor,
                                     Map.of("split", "REAL_LABELLED", "samples", List.of(renamed))));
+        } finally {
+            evaluator.shutdown();
+        }
+    }
+
+    @Test
+    void datasetProvenanceAndAuthorAreServerSetAndClientEvidenceIsMarked() {
+        QualityEvalService evaluator =
+                new QualityEvalService(
+                        store,
+                        configs,
+                        new WorkflowEngine(),
+                        new OrderSource("demo", "", "", ""),
+                        new EvalCaseManager(),
+                        "test-sha");
+        try {
+            Map<String, Object> forged = new LinkedHashMap<>(sample());
+            forged.put("evidence_provenance", "SERVER_SNAPSHOT");
+            forged.put("data_mode", "REAL");
+            var clientDataset =
+                    evaluator.createDataset(
+                            actor, Map.of("split", "REAL_LABELLED", "samples", List.of(forged)));
+            Map<String, Object> clientSample =
+                    PolicyService.ruleMaps(clientDataset.data().get("samples")).get(0);
+            assertEquals("CLIENT_SUPPLIED", clientSample.get("evidence_provenance"));
+            assertEquals("CLIENT_SUPPLIED", clientDataset.data().get("provenance"));
+            assertEquals(actor.userId(), clientDataset.data().get("created_by"));
+            var serverDataset =
+                    evaluator.createDataset(
+                            actor,
+                            Map.of(
+                                    "split",
+                                    "REAL_LABELLED",
+                                    "samples",
+                                    List.of(
+                                            Map.of(
+                                                    "scenario",
+                                                    "compensation_suggestion",
+                                                    "input",
+                                                    Map.of("order_id", "DEMO-002"),
+                                                    "evidence_provenance",
+                                                    "FORGED"))));
+            assertEquals(
+                    "SERVER_SNAPSHOT",
+                    PolicyService.ruleMaps(serverDataset.data().get("samples"))
+                            .get(0)
+                            .get("evidence_provenance"));
+            assertEquals("SERVER_DERIVED", serverDataset.data().get("provenance"));
+            evaluator.ensureDefaults(actor);
+            var seed =
+                    store.require(
+                            actor.tenantId(), QualityEvalService.DATASET, "synthetic-smoke-v1");
+            assertEquals("SYSTEM", seed.data().get("created_by"));
+            assertEquals("SERVER_DERIVED", seed.data().get("provenance"));
         } finally {
             evaluator.shutdown();
         }

@@ -4,3 +4,7 @@ harness:
     # Every request still needs an explicit bearer header and a literal loopback Host/Origin.
     # A custom hash list replaces those identities; [] explicitly disables all demo tokens.
     demo-identities: '${HARNESS_DEMO_IDENTITIES:}'
+  quality:
+    publish-gate:
+      # The seeded synthetic smoke set holds two compensation samples; pilot keeps the default 20.
+      min-measured-samples-per-scenario: ${HARNESS_PUBLISH_MIN_SAMPLES_PER_SCENARIO:2}

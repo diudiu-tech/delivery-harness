@@ -132,6 +132,40 @@ public class RuntimeConfigurationController extends QualityAccess {
         return configs.publish(actor.tenantId(), id, actor.userId(), version(body), report);
     }
 
+    @PostMapping("/runtime-configs/{id}/withdraw")
+    public PlatformStore.Entity withdrawConfig(
+            HttpServletRequest request,
+            @PathVariable @Size(max = 100) String id,
+            @Valid @RequestBody QualityRequests.LifecycleRequest payload) {
+        Map<String, Object> body = payload.toMap();
+        AuthContext.Principal actor = PrincipalAccess.get(request);
+        actor.requireRole("POLICY_PUBLISHER", "ADMIN");
+        config(request, id);
+        return configs.withdraw(
+                actor.tenantId(),
+                id,
+                actor.userId(),
+                version(body),
+                QualityData.required(body, "reason", 2000));
+    }
+
+    @PostMapping("/runtime-routes/{id}/withdraw")
+    public PlatformStore.Entity withdrawRoute(
+            HttpServletRequest request,
+            @PathVariable @Size(max = 100) String id,
+            @Valid @RequestBody QualityRequests.LifecycleRequest payload) {
+        Map<String, Object> body = payload.toMap();
+        AuthContext.Principal actor = PrincipalAccess.get(request);
+        actor.requireRole("POLICY_PUBLISHER", "ADMIN");
+        resource(actor, RuntimeConfigService.ROUTE_KIND, id);
+        return configs.withdrawRoute(
+                actor.tenantId(),
+                id,
+                actor.userId(),
+                version(body),
+                QualityData.required(body, "reason", 2000));
+    }
+
     private static boolean runtimeAllowed(AuthContext.Principal actor, Map<String, Object> config) {
         return RuntimeVisibility.canReadSummary(config, actor.cityCodes(), actor.stationIds());
     }

@@ -88,6 +88,10 @@ public class RuntimeConfigService {
 
     public PlatformStore.Entity create(String tenant, String actor, Map<String, Object> request) {
         Map<String, Object> data = executable(tenant, request);
+        requireCurrentReferences(
+                tenant,
+                data.get("policy_version").toString(),
+                QualityData.strings(data.get("knowledge_versions")));
         data.put("created_by", actor);
         requireBoundedBundle(data);
         return store.create(
@@ -201,6 +205,32 @@ public class RuntimeConfigService {
         }
     }
 
+    /**
+     * New configs and new publications must pin the current publication. SUPERSEDED
+     * versions stay resolvable only for configs published before the supersession.
+     */
+    private void requireCurrentReferences(
+            String tenant, String policyId, List<String> knowledgeIds) {
+        if (!"PUBLISHED".equals(
+                store.require(tenant, PolicyService.KIND, policyId).data().get("state"))) {
+            throw new PlatformException(
+                    409,
+                    "RUNTIME_REFERENCE_NOT_CURRENT",
+                    "Runtime configs must pin a currently published policy");
+        }
+        for (String knowledgeId : knowledgeIds) {
+            if (!"PUBLISHED".equals(
+                    store.require(tenant, KnowledgeService.KIND, knowledgeId)
+                            .data()
+                            .get("state"))) {
+                throw new PlatformException(
+                        409,
+                        "RUNTIME_REFERENCE_NOT_CURRENT",
+                        "Runtime configs must pin currently published knowledge versions");
+            }
+        }
+    }
+
     public Map<String, Object> resolve(String tenant, String id) {
         Map<String, Object> result = resolveForEvaluation(tenant, id);
         if (!"PUBLISHED".equals(result.get("state"))) {
@@ -254,6 +284,10 @@ public class RuntimeConfigService {
             throw new PlatformException(
                     403, "SEPARATION_OF_DUTIES", "Runtime publisher must differ from author");
         }
+        requireCurrentReferences(
+                tenant,
+                entity.data().get("policy_version").toString(),
+                QualityData.strings(entity.data().get("knowledge_versions")));
         requireGateEvidence(tenant, entity.data(), report);
         Map<String, Object> data = QualityData.copy(entity.data());
         data.put("state", "PUBLISHED");

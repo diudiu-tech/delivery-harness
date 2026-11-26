@@ -173,7 +173,8 @@ class KnowledgePublicationTest {
         DataSource source =
                 PlatformTestDatabase.source(
                         "jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1");
-        Flyway.configure().dataSource(source).target("10").load().migrate();
+        // Stop just before V12; the current store writes V11 lease columns.
+        Flyway.configure().dataSource(source).target("11").load().migrate();
         var store = new PlatformStore(source);
         for (int version = 1; version <= 2; version++) {
             Map<String, Object> legacy = new LinkedHashMap<>(document("legacy-doc"));

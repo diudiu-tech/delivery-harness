@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.delivery.harness.common.dto.RuleInfo;
+import com.delivery.harness.common.util.JsonUtil;
 import com.delivery.harness.knowledge.rule.RuleBaseService;
 import com.delivery.harness.platform.PlatformTestDatabase;
 import com.delivery.harness.platform.store.PlatformException;
@@ -502,6 +503,109 @@ class RuntimeConfigurationTest {
         assertEquals(422, failure.status());
         assertEquals("RUNTIME_BUNDLE_TOO_LARGE", failure.code());
         assertEquals(2, store.summaryPage("tenant", "runtime_config", "", 100).size());
+    }
+
+    @Test
+    void newConfigsCannotPinSupersededPoliciesOrKnowledgeButPublishedOnesStillResolve() {
+        var store = PlatformTestDatabase.memory();
+        var policies = new PolicyService(store, new RuleBaseService());
+        var knowledge = new KnowledgeService(store, policies);
+        var configs =
+                new RuntimeConfigService(
+                        store,
+                        policies,
+                        knowledge,
+                        (model, messages, tools, temperature, tokens) -> "{}");
+        configs.ensureDefault("tenant");
+        var replacement =
+                policies.create(
+                        "tenant",
+                        "author",
+                        Map.of(
+                                "rules",
+                                List.of(
+                                        JsonUtil.toMap(
+                                                RuleInfo.builder()
+                                                        .ruleId("POLICY-1")
+                                                        .ruleName("policy")
+                                                        .ruleType("compensation")
+                                                        .enabled(true)
+                                                        .conditions(
+                                                                Map.of(
+                                                                        "complaint_type",
+                                                                        "OVERTIME",
+                                                                        "min_overtime_minutes",
+                                                                        0))
+                                                        .actions(
+                                                                Map.of(
+                                                                        "amount_type",
+                                                                        "FIXED",
+                                                                        "amount",
+                                                                        "3.00",
+                                                                        "method",
+                                                                        "COUPON"))
+                                                        .build())),
+                                "supersedes_policy_ids",
+                                List.of("policy-default-v1")));
+        policies.publish("tenant", replacement.id(), "publisher", replacement.version());
+        var first = publishedKnowledge(knowledge, null);
+        publishedKnowledge(knowledge, first.data().get("document_id").toString());
+
+        for (var pinned :
+                List.of(
+                        Map.of("policy", "policy-default-v1", "knowledge", List.<String>of()),
+                        Map.of("policy", replacement.id(), "knowledge", List.of(first.id())))) {
+            var failure =
+                    assertThrows(
+                            PlatformException.class,
+                            () ->
+                                    configs.create(
+                                            "tenant",
+                                            "author",
+                                            Map.of(
+                                                    "model",
+                                                    "fixed-model",
+                                                    "prompt",
+                                                    "Explain facts",
+                                                    "policy_version",
+                                                    pinned.get("policy"),
+                                                    "deterministic_only",
+                                                    true,
+                                                    "knowledge_versions",
+                                                    pinned.get("knowledge"))));
+            assertEquals(409, failure.status());
+            assertEquals("RUNTIME_REFERENCE_NOT_CURRENT", failure.code());
+        }
+        configs.create(
+                "tenant",
+                "author",
+                Map.of(
+                        "model",
+                        "fixed-model",
+                        "prompt",
+                        "Explain facts",
+                        "policy_version",
+                        replacement.id(),
+                        "deterministic_only",
+                        true));
+        // The seed was published before the supersession and keeps its frozen policy.
+        assertEquals("PUBLISHED", configs.resolve("tenant", "runtime-default-v1").get("state"));
+    }
+
+    private static PlatformStore.Entity publishedKnowledge(
+            KnowledgeService knowledge, String documentId) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("title", "Versioned reference");
+        request.put("content", "versioned reference content");
+        if (documentId != null) {
+            request.put("document_id", documentId);
+        }
+        var draft = knowledge.create("tenant", "author", request);
+        var reviewed =
+                knowledge.transition(
+                        "tenant", draft.id(), "reviewer", draft.version(), "review", "verified");
+        return knowledge.transition(
+                "tenant", draft.id(), "reviewer", reviewed.version(), "publish", "approved");
     }
 
     private static PlatformStore.Entity report(PlatformStore.Entity config, String hash) {

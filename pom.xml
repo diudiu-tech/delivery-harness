@@ -44,7 +44,7 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <jacoco.version>0.8.15</jacoco.version>
+        <jacoco.version>0.8.16</jacoco.version>
 
         <!-- Core-only line coverage is a ratchet, not a quality certification.
              Cross-module API exercise is reported separately by report-aggregate.

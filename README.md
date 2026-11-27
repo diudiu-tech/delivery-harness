@@ -229,6 +229,48 @@ M1–M3 code verification is separate from real IdP/source/PostgreSQL/business
 acceptance. FR-14 funds execution and actual retention deletion require a new
 project after M2 acceptance. Draft PRs do not authorize merging or deployment.
 
+### v0.3 harness benchmark (demo only)
+
+A deterministic single-case benchmark runs alongside the platform. It is
+registered only outside pilot mode (`@BenchmarkApi`): its cases live in an
+unscoped, bounded `InMemoryCaseStore` with no tenant or city/station checks and a
+caller-supplied `unauthenticated_operator_id`. Scoped production cases stay on
+`/api/v2`.
+
+- **Three-valued evidence**: closed `EV-*` snapshots built on
+  `sealed interface EvidenceValue<T>` (`Known` / `Unknown` / `Invalid`), with
+  canonical SHA-256 hashing ([ADR-0012](docs/adr/0012-three-valued-evidence-ledger-and-deterministic-snapshots.md)).
+- **Single-source `PolicyBundle`**: `policy-v1.0.0.json` is validated at startup
+  and holds the benchmark's intervals, thresholds and routing matrix
+  ([ADR-0013](docs/adr/0013-single-source-policy-bundle.md)). It is separate
+  from the versioned platform policies under `/api/v2/policies`.
+- **Deterministic residual diagnosis**: five candidate delay factors with
+  explicit `MULTI_FACTOR` / `UNDETERMINED` outcomes and no automatic liability.
+- **Minimum probabilistic surface**: optional extraction
+  (`harness.llm.extraction.enabled=false` by default) yields only unconfirmed
+  `ClaimedFact`s, which `ClaimVerifier` checks deterministically and
+  `SingleSourcePolicyEngine` never receives
+  ([ADR-0011](docs/adr/0011-minimum-probabilistic-surface-and-unidirectional-routing.md)).
+- **Endpoints**: `/api/cases`, `/api/policies/active` and, with the `demo`
+  profile, `/api/demo/fixtures`. Like every `/api/**` route they need an
+  explicit demo bearer token.
+- **Single-case page**: `/index.html` takes the bearer token in a password field,
+  keeps it in page memory only, and renders through text nodes under the
+  platform CSP.
+
+Run the frozen IM corpus ablation against a real model (`@Tag("live-llm")`,
+excluded from offline CI):
+
+```bash
+HARNESS_LLM_ENDPOINT=http://localhost:11434 \
+HARNESS_LLM_MODEL=qwen2.5:7b \
+./mvnw -pl harness-core test -Dgroups=live-llm -Dtest=LiveLlmAblationReportTest
+```
+
+The report is written to `harness-core/target/ablation-live-report.md`. If the
+model does not beat `RegexSignalBaseline` on holdout F1 with zero false-positive
+exemption signals, keep extraction disabled (ADR-0011 exit clause).
+
 ## Architecture
 
 ```mermaid

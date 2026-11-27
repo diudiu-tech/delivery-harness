@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Harness Workbench</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1>Delivery Harness Workbench</h1>
+      <span class="subtitle">确定性核心 + 最小概率面 · 单 Case 复核工作台</span>
+    </div>
+    <div class="topbar-links" aria-label="Demo identity">
+      <!-- /api/** requires an explicit bearer; the token stays in page memory only. -->
+      <label for="token-input">Bearer token</label>
+      <input id="token-input" type="password" autocomplete="off" maxlength="512" placeholder="demo-agent-token">
+      <button id="connect-btn" type="button" class="btn">连接</button>
+      <span id="active-trace-link" class="hidden"></span>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="panel control-panel" aria-label="Case Selector and Creation">
+      <div class="control-row">
+        <div id="fixture-group" class="field-group hidden">
+          <label for="fixture-select">Demo 契约样本（`demo` Profile）</label>
+          <select id="fixture-select"></select>
+        </div>
+
+        <div class="field-group">
+          <label for="order-id-input">订单号 (`order_id`)</label>
+          <input id="order-id-input" type="text" placeholder="例如 DEMO-001" maxlength="64">
+        </div>
+
+        <div class="field-group">
+          <label for="complaint-type-select">投诉类型 (`complaint_type`)</label>
+          <select id="complaint-type-select">
+            <option value="OVERTIME">OVERTIME（超时）</option>
+            <option value="DAMAGED">DAMAGED（餐损）</option>
+            <option value="WRONG_ORDER">WRONG_ORDER（错单）</option>
+            <option value="MISSING_ITEM">MISSING_ITEM（漏餐）</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="idempotency-key-input">幂等键（可选 `Idempotency-Key`）</label>
+          <input id="idempotency-key-input" type="text" placeholder="留空则不带" maxlength="128">
+        </div>
+
+        <div class="field-group action-group">
+          <button id="create-case-btn" type="button" class="btn btn-primary">创建并评估 Case</button>
+        </div>
+      </div>
+
+      <div class="control-row secondary-row">
+        <div class="field-group grow">
+          <label for="case-select">切换已有 Case</label>
+          <select id="case-select">
+            <option value="">— 暂无 Case，请先创建 —</option>
+          </select>
+        </div>
+        <div class="field-group action-group">
+          <button id="refresh-cases-btn" type="button" class="btn">刷新列表</button>
+        </div>
+        <p id="profile-note" class="hint-text"></p>
+      </div>
+    </section>
+
+    <div id="banner" class="banner hidden" role="status" aria-live="polite"></div>
+
+    <section id="empty-state" class="panel empty-state">
+      <h2>开始一次确定性 Case 评估</h2>
+      <p>无需启动任何 LLM，即可直接对闭环三值证据快照运行确定性残差归因、单一真源政策裁决与人工复核闭环。</p>
+      <p>如果以 <code>--spring.profiles.active=demo</code> 启动，上方会自动加载 13 条合成契约样本；否则可直接输入订单号发起请求（未知订单将诚实返回 404）。</p>
+    </section>
+
+    <div id="workbench" class="hidden">
+      <section class="panel case-header" id="case-header"></section>
+
+      <div class="columns">
+        <div class="col-left">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>确定性残差归因（Deterministic Residual Diagnosis）</h2>
+              <span id="diagnosis-outcome-badge" class="badge"></span>
+            </div>
+            <div id="diagnosis-content"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>IM 对话证据（Conversation Messages）</h2>
+              <span class="hint-inline">引用片段按 offset 安全高亮</span>
+            </div>
+            <div id="messages-content"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>闭环证据台账（Closed EV-* Ledger）</h2>
+              <span id="snapshot-meta" class="hint-inline"></span>
+            </div>
+            <div class="table-wrap">
+              <table class="ledger-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>类型</th>
+                    <th>三值状态</th>
+                    <th>值 / 缺失或非法说明</th>
+                    <th>来源</th>
+                  </tr>
+                </thead>
+                <tbody id="ledger-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div class="col-right">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>单一真源政策裁决（Single-Source Policy）</h2>
+              <span id="adjudication-status-badge" class="badge"></span>
+            </div>
+            <div id="adjudication-content"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>非结构化提取信号（Unconfirmed Advisory Signals）</h2>
+              <span class="badge badge-muted">只读 · 不进入裁决</span>
+            </div>
+            <div id="signals-content"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>确定性客户沟通草稿（Customer Draft）</h2>
+              <span id="draft-status-badge" class="badge"></span>
+            </div>
+            <div id="draft-content"></div>
+          </section>
+
+          <section class="panel" id="attest-panel">
+            <div class="panel-head">
+              <h2>人工举证回填（ATTEST）</h2>
+              <span class="hint-inline">写入 EV-HUMAN-* 并触发新 Run</span>
+            </div>
+            <form id="attest-form" class="form-grid">
+              <div class="field-group">
+                <label for="attest-type">举证类型 (`evidence_type`)</label>
+                <select id="attest-type">
+                  <option value="DAMAGE_LEVEL">DAMAGE_LEVEL</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="attest-value">举证值 (`value`)</label>
+                <select id="attest-value">
+                  <option value="PARTIAL">PARTIAL（部分损毁）</option>
+                  <option value="FULL">FULL（完全损毁）</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="attest-operator">操作员 ID（`unauthenticated_operator_id`）</label>
+                <input id="attest-operator" type="text" value="reviewer-01" maxlength="128" required>
+              </div>
+              <div class="field-group action-group">
+                <button type="submit" class="btn btn-secondary">提交人工举证</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>人工决策闭环（Human Decision）</h2>
+              <span id="decision-hint" class="hint-inline"></span>
+            </div>
+            <form id="decision-form" class="form-grid">
+              <div class="field-group">
+                <label for="decision-action">决策动作 (`action`)</label>
+                <select id="decision-action">
+                  <option value="ACCEPT">ACCEPT（接受建议）</option>
+                  <option value="OVERRIDE">OVERRIDE（改判金额/方案）</option>
+                  <option value="REQUEST_EVIDENCE">REQUEST_EVIDENCE（要求补证）</option>
+                  <option value="ESCALATE">ESCALATE（升级主管）</option>
+                  <option value="RETURN_TO_REVIEW">RETURN_TO_REVIEW（退回初审）</option>
+                  <option value="APPROVE">APPROVE（主管审批通过）</option>
+                  <option value="REJECT_CLOSE">REJECT_CLOSE（主管驳回结案）</option>
+                  <option value="RECORD_EXECUTION_RECEIPT">RECORD_EXECUTION_RECEIPT（登记外部执行回执）</option>
+                  <option value="CLOSE">CLOSE（关闭）</option>
+                  <option value="REOPEN">REOPEN（重开并触发新 Run）</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="decision-operator">操作员 ID（`unauthenticated_operator_id`）</label>
+                <input id="decision-operator" type="text" value="reviewer-01" maxlength="128" required>
+              </div>
+              <div class="field-group">
+                <label for="decision-amount">最终金额（可选 `final_amount`）</label>
+                <input id="decision-amount" type="number" step="0.01" min="0" placeholder="例如 12.50">
+              </div>
+              <div class="field-group">
+                <label for="decision-method">最终方式（可选 `final_method`）</label>
+                <input id="decision-method" type="text" placeholder="例如 原路退款 / 发放优惠券" maxlength="64">
+              </div>
+              <div class="field-group">
+                <label for="decision-override-code">改判原因码（`OVERRIDE` 必填）</label>
+                <input id="decision-override-code" type="text" placeholder="例如 SPECIAL_GOODWILL" maxlength="64">
+              </div>
+              <div class="field-group">
+                <label for="decision-exception-reason">超上限特批原因（超 Cap `APPROVE` 必填）</label>
+                <input id="decision-exception-reason" type="text" placeholder="例如 客户高价值大单主管特批" maxlength="500">
+              </div>
+              <div class="field-group">
+                <label for="decision-receipt-id">外部执行回执号（`RECORD_EXECUTION_RECEIPT` 必填）</label>
+                <input id="decision-receipt-id" type="text" placeholder="例如 PAY-20260901-0001" maxlength="128">
+              </div>
+              <div class="field-group">
+                <label for="decision-liability">人工定责（可选 `final_liability`）</label>
+                <input id="decision-liability" type="text" placeholder="例如 MERCHANT / RIDER / PLATFORM" maxlength="64">
+              </div>
+              <div class="field-group">
+                <label for="decision-note">备注（可选 `note`）</label>
+                <input id="decision-note" type="text" placeholder="复核说明" maxlength="1000">
+              </div>
+              <div class="field-group action-group full-width">
+                <button type="submit" class="btn btn-primary">提交决策</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>运行历史与决策审计（Runs & Decisions）</h2>
+            </div>
+            <div id="audit-content"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span>Delivery Harness Reference Implementation · 本地内存态演示 · 无鉴权（operator_id 标记为 unauthenticated_operator_id）· 不执行真实付款</span>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

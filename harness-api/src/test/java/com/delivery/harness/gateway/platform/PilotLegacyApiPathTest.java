@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.delivery.harness.gateway.controller.AnalyzeController;
+import com.delivery.harness.gateway.controller.BenchmarkCaseController;
+import com.delivery.harness.gateway.controller.BenchmarkPolicyController;
+import com.delivery.harness.gateway.controller.DemoFixturesController;
 import com.delivery.harness.gateway.controller.EvalController;
 import com.delivery.harness.gateway.controller.KnowledgeController;
 import com.delivery.harness.gateway.controller.ObserveController;
@@ -134,7 +137,10 @@ class PilotLegacyApiPathTest {
                         AnalyzeController.class,
                         EvalController.class,
                         KnowledgeController.class,
-                        ObserveController.class)) {
+                        ObserveController.class,
+                        BenchmarkCaseController.class,
+                        BenchmarkPolicyController.class,
+                        DemoFixturesController.class)) {
             assertEquals(0, context.getBeanNamesForType(legacy).length, legacy.getName());
         }
         mappings.getHandlerMethods()

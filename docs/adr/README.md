@@ -9,7 +9,7 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 | ADR | Title | Status |
 | --- | --- | --- |
 | [0001](0001-delete-unreachable-code-before-adding-features.md) | Delete unreachable code before adding features | Accepted |
-| [0002](0002-rule-engine-owns-the-compensation-amount.md) | The rule engine owns the compensation amount, not the model | Accepted |
+| [0002](0002-rule-engine-owns-the-compensation-amount.md) | The rule engine owns the compensation amount, not the model | Amended by ADR-0011 |
 | [0003](0003-no-vector-retrieval-at-this-corpus-size.md) | No vector retrieval at this corpus size | Accepted |
 | [0004](0004-three-maven-modules-instead-of-nine.md) | Three Maven modules instead of nine | Accepted |
 | [0005](0005-trusted-workflow-output-contract.md) | Keep decision authority in trusted workflow inputs and outputs | Proposed |
@@ -18,6 +18,9 @@ numbered sequentially, never edited after acceptance. Supersede instead of edit.
 | [0008](0008-durable-queue-with-independent-schedulers.md) | Durable queue with independent schedulers | Proposed |
 | [0009](0009-oidc-identities-and-local-demo-access.md) | Verified OIDC identities and explicit local demo access | Proposed |
 | [0010](0010-explicit-record-list-projections.md) | Explicit record summaries for bounded list reads | Proposed |
+| [0011](0011-minimum-probabilistic-surface-and-unidirectional-routing.md) | Minimum probabilistic surface and unidirectional LLM routing | Accepted |
+| [0012](0012-three-valued-evidence-ledger-and-deterministic-snapshots.md) | Three-valued evidence ledger and deterministic snapshots | Accepted |
+| [0013](0013-single-source-policy-bundle.md) | Single-source PolicyBundle owns all policy parameters | Accepted |
 
 ## When to write one
 

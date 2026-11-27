@@ -52,9 +52,14 @@ harness:
     default-model: ${HARNESS_LLM_MODEL:qwen2.5:7b}
     api-key: ${HARNESS_LLM_API_KEY:}
     timeout-seconds: ${HARNESS_LLM_TIMEOUT_SECONDS:120}
+    extraction:
+      enabled: ${HARNESS_LLM_EXTRACTION_ENABLED:false}
   guardrail:
     max-compensation-amount: ${HARNESS_MAX_COMPENSATION_AMOUNT:50.0}
+  cases:
+    max-cases: ${HARNESS_MAX_CASES:500}
   observe:
+    max-traces: ${HARNESS_MAX_TRACES:500}
     max-tool-invocations: ${HARNESS_MAX_TOOL_INVOCATIONS:2000}
   quality:
     publish-gate:

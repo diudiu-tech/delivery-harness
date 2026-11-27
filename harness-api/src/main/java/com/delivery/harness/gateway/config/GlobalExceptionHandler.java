@@ -2,8 +2,10 @@ package com.delivery.harness.gateway.config;
 
 import com.delivery.harness.common.dto.HarnessResponse;
 import com.delivery.harness.common.exception.BizException;
+import com.delivery.harness.common.exception.ConflictException;
 import com.delivery.harness.common.exception.HarnessException;
 import com.delivery.harness.common.exception.LlmException;
+import com.delivery.harness.common.exception.ResourceNotFoundException;
 import com.delivery.harness.common.exception.ToolException;
 
 import jakarta.validation.ConstraintViolationException;
@@ -29,6 +31,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<HarnessResponse<?>> handleBizException(BizException e) {
         log.warn("Business request refused: code={}", e.getCode());
         return ResponseEntity.badRequest().body(HarnessResponse.error(e.getCode(), e.getMessage()));
+    }
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<HarnessResponse<?>> handleNotFoundException(ResourceNotFoundException e) {
+        log.warn("ResourceNotFoundException: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(HarnessResponse.error(404, e.getMessage()));
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<HarnessResponse<?>> handleConflictException(ConflictException e) {
+        log.warn("ConflictException: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(HarnessResponse.error(409, e.getMessage()));
     }
 
     @ExceptionHandler(ToolException.class)

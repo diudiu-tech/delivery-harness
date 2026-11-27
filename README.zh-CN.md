@@ -189,6 +189,40 @@ core 独立 LINE 覆盖率门槛统一为根 POM 的 `0.70`，正常 `./mvnw cle
 M1–M3 代码验证与真实 IdP、源、PostgreSQL 和业务效果验收分开；FR-14 资金执行
 及实际留存删除在 M2 后另立项。草稿 PR 不构成合并或上线授权。
 
+### v0.3 harness 基准（仅 demo）
+
+确定性单 Case 基准与平台并存，只在非 pilot 模式下注册（`@BenchmarkApi`）。它的
+Case 存放在无范围隔离的有界 `InMemoryCaseStore`，没有租户与城市/站点校验，
+`operator_id` 由调用方传入（`unauthenticated_operator_id`）。带范围的生产 Case
+仍走 `/api/v2`。
+
+- **三值证据**：基于 `sealed interface EvidenceValue<T>`（`Known` / `Unknown` /
+  `Invalid`）的闭环 `EV-*` 快照，规范化 SHA-256 哈希（见 [ADR-0012](docs/adr/0012-three-valued-evidence-ledger-and-deterministic-snapshots.md)）。
+- **单一真源 `PolicyBundle`**：`policy-v1.0.0.json` 启动即校验，承载基准使用的
+  区间、阈值与路由矩阵（见 [ADR-0013](docs/adr/0013-single-source-policy-bundle.md)），
+  与 `/api/v2/policies` 下的平台版本化政策相互独立。
+- **确定性残差归因**：5 个候选延误因子，显式输出 `MULTI_FACTOR` / `UNDETERMINED`，
+  不自动定责。
+- **最小概率面**：可选抽取默认关闭（`harness.llm.extraction.enabled=false`），只产出
+  待核实的 `ClaimedFact`，由 `ClaimVerifier` 确定性校验，且永不传入
+  `SingleSourcePolicyEngine`（见 [ADR-0011](docs/adr/0011-minimum-probabilistic-surface-and-unidirectional-routing.md)）。
+- **接口**：`/api/cases`、`/api/policies/active`，启用 `demo` profile 时另有
+  `/api/demo/fixtures`。与所有 `/api/**` 一样需要显式 demo bearer token。
+- **单 Case 页面**：`/index.html` 用密码框输入 bearer token，仅保存在页面内存中，
+  在平台 CSP 下以文本节点渲染。
+
+对真实模型运行冻结 IM 语料消融（`@Tag("live-llm")`，离线 CI 排除）：
+
+```bash
+HARNESS_LLM_ENDPOINT=http://localhost:11434 \
+HARNESS_LLM_MODEL=qwen2.5:7b \
+./mvnw -pl harness-core test -Dgroups=live-llm -Dtest=LiveLlmAblationReportTest
+```
+
+报告输出到 `harness-core/target/ablation-live-report.md`。若模型在 holdout F1 上
+跑不赢 `RegexSignalBaseline` 且无法保持豁免类信号 0 误报，就继续关闭抽取
+（ADR-0011 退出条款）。
+
 ## 架构
 
 ```mermaid

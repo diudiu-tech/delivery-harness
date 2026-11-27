@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- **Three-valued evidence & deterministic snapshots (PR1, PR3, ADR-0012)**:
+  Java 17 `sealed interface EvidenceValue<T>` (`Known` / `Unknown` / `Invalid`),
+  `EvidenceSnapshot` closed `EV-*` ledger with canonical SHA-256 hashing and
+  immutable `withHumanAttestation`, `EvidenceSource` SPI, and
+  `SyntheticEvidenceSource` with 13 frozen contract/IM/adversarial/boundary
+  fixtures (`harness-core/src/test/resources/eval/labels.json` isolated in tests).
+- **Single-source `PolicyBundle` & adjudication engine (PR2, ADR-0013)**:
+  Versioned `policy-v1.0.0.json`, startup fail-fast `PolicyBundleValidator`
+  (interval overlap/gap and routing-matrix completeness), `PolicyBundleLoader`
+  with SHA-256 hash, and `SingleSourcePolicyEngine` with 6-state
+  `AdjudicationStatus`.
+- **Deterministic residual diagnosis & customer templates (PR4)**:
+  `DeterministicResidualEngine` over 5 causal factors (including
+  `WEATHER_EXPLAINED` and neutral `UNEXPLAINED_ROAD_EXCESS`, preserving negative
+  raw deltas, omitting automatic `liabilityAllocation`) and
+  `DeterministicCustomerTemplateRenderer` (completed wording reachable only
+  with an external execution receipt).
+- **Benchmark Case API & human-decision state machine (PR5)**:
+  `DeliveryCase`, `AssessmentRun`, `HumanDecision` (`unauthenticated_operator_id`),
+  `CaseStore` SPI, `CaseApplicationService`, `/api/cases`, `/api/policies/active`,
+  and `@Profile("demo")` `/api/demo/fixtures` (`@BenchmarkApi`: unscoped
+  in-memory store, never registered in pilot; scoped cases stay on `/api/v2`), supporting
+  `Idempotency-Key` replay, optimistic concurrency (`409`), human `ATTEST`,
+  over-cap escalation requiring `exception_reason`, `RECORD_EXECUTION_RECEIPT`,
+  and `REOPEN`.
+- **Minimum probabilistic surface & ablation framework (PR6, ADR-0011)**:
+  `ClaimVerifier`, `RegexSignalBaseline`, opt-in `UnstructuredExtractor`
+  (`harness.llm.extraction.enabled=false` by default), frozen `dev`/`holdout`
+  IM evaluation corpus, `IndependentEvalScorer`, `OfflineAblationSmokeTest`,
+  and `@Tag("live-llm")` `LiveLlmAblationReportTest`.
+- **Zero-build Single-Case Workbench & XSS/CSP guards (PR7)**:
+  Embedded HTML/CSS/Vanilla JS UI in `harness-api/src/main/resources/static/`
+  served under the platform `BrowserBoundaryFilter` CSP and `nosniff` headers,
+  verified by `WorkbenchStaticTest`.
+- Zero-dependency JVM bytecode architecture guard tests (`ArchitectureGuardTest`,
+  `ApiArchitectureGuardTest`) enforcing module and policy/extraction boundaries.
+
+### Changed
+
+- Added `HARNESS_LLM_EXTRACTION_ENABLED=false` for the opt-in benchmark extractor.
+- Updated `README.md`, `README.zh-CN.md`, and `docs/adr/` (added ADR-0011,
+  ADR-0012, ADR-0013, numbered after the platform ADRs 0005-0010).
+- Upgrade the optional Ollama runtime from 0.32.4 to 0.34.0.
+- Update the security policy to direct reports to GitHub private vulnerability reporting.
+
 ### Fixed
 
 - Avoid quadratic currency-amount matching on long model-generated digit runs.
@@ -12,11 +59,6 @@ All notable changes to this project will be documented in this file. The format 
 - Update both READMEs to reflect the current 116-test suite.
 - Treat unparseable model compensation amounts as conflicts requiring review.
 - Align the root and module POM versions with 0.2.0 for release validation.
-
-### Changed
-
-- Upgrade the optional Ollama runtime from 0.32.4 to 0.34.0.
-- Update the security policy to direct reports to GitHub private vulnerability reporting.
 
 ## [0.2.0] - 2026-09-01
 

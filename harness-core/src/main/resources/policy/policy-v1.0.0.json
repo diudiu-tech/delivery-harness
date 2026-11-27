@@ -1,0 +1,148 @@
+{
+  "policyVersion": "policy-v1.0.0",
+  "effectiveFrom": "2026-01-01T00:00:00Z",
+  "effectiveTo": "2027-01-01T00:00:00Z",
+  "evaluationClockField": "DELIVERED_AT",
+  "minuteRoundingMode": "FLOOR_TRUNCATE",
+  "stalenessPolicySeconds": {
+    "STATION_CAPACITY_RATIO": 1800,
+    "STATION_AVG_DISPATCH_WAIT_MINUTES": 1800,
+    "STATION_AVG_MERCHANT_PREP_MINUTES": 1800
+  },
+  "attributionThresholds": {
+    "minExcessMinutes": 8,
+    "dominanceMarginMinutes": 5,
+    "normalDispatchBaselineMinutes": 4,
+    "toShopBaselineMinutes": 8,
+    "normalMerchantPrepBaselineMinutes": 10,
+    "strainedCapacityRatio": 0.85,
+    "rationale": "Locked in PR2 (ADR-0013): 8 min excess filters normal delivery noise; 5 min dominance margin separates single primary candidate from MULTI_FACTOR; 4/8/10 min represent normal-state SLA baselines rather than strained real-time station averages; 0.85 matches station strain threshold."
+  },
+  "limits": {
+    "approvalThreshold": 10.00,
+    "escalationCap": 50.00
+  },
+  "compensationRules": [
+    {
+      "ruleId": "COMP-006",
+      "ruleName": "未超时不予赔付",
+      "complaintType": "OVERTIME",
+      "priority": 70,
+      "requiredEvidence": [
+        "ORDER_STATUS",
+        "ORDER_CREATE_TIME",
+        "ORDER_DELIVERY_TIME",
+        "ORDER_EXPECTED_DELIVERY_TIME",
+        "TIMELINE_OVERTIME_MINUTES"
+      ],
+      "minOvertimeMinutes": 0,
+      "maxOvertimeMinutes": 0,
+      "amountType": "FIXED",
+      "fixedAmount": 0.00,
+      "method": "无需赔付",
+      "approvalRequired": false
+    },
+    {
+      "ruleId": "COMP-003",
+      "ruleName": "轻微超时赔付",
+      "complaintType": "OVERTIME",
+      "priority": 80,
+      "requiredEvidence": [
+        "ORDER_STATUS",
+        "ORDER_CREATE_TIME",
+        "ORDER_DELIVERY_TIME",
+        "ORDER_EXPECTED_DELIVERY_TIME",
+        "TIMELINE_OVERTIME_MINUTES"
+      ],
+      "minOvertimeMinutes": 1,
+      "maxOvertimeMinutes": 15,
+      "amountType": "FIXED",
+      "fixedAmount": 1.00,
+      "method": "红包",
+      "approvalRequired": false
+    },
+    {
+      "ruleId": "COMP-002",
+      "ruleName": "一般超时赔付",
+      "complaintType": "OVERTIME",
+      "priority": 90,
+      "requiredEvidence": [
+        "ORDER_STATUS",
+        "ORDER_CREATE_TIME",
+        "ORDER_DELIVERY_TIME",
+        "ORDER_EXPECTED_DELIVERY_TIME",
+        "TIMELINE_OVERTIME_MINUTES"
+      ],
+      "minOvertimeMinutes": 16,
+      "maxOvertimeMinutes": 30,
+      "amountType": "FIXED",
+      "fixedAmount": 5.00,
+      "method": "发放优惠券",
+      "approvalRequired": false
+    },
+    {
+      "ruleId": "COMP-001",
+      "ruleName": "严重超时赔付",
+      "complaintType": "OVERTIME",
+      "priority": 100,
+      "requiredEvidence": [
+        "ORDER_STATUS",
+        "ORDER_AMOUNT",
+        "ORDER_CREATE_TIME",
+        "ORDER_DELIVERY_TIME",
+        "ORDER_EXPECTED_DELIVERY_TIME",
+        "TIMELINE_OVERTIME_MINUTES"
+      ],
+      "minOvertimeMinutes": 31,
+      "maxOvertimeMinutes": null,
+      "amountType": "PERCENT_CAPPED",
+      "rate": 0.50,
+      "cap": 20.00,
+      "method": "原路退款",
+      "approvalRequired": true
+    },
+    {
+      "ruleId": "COMP-004",
+      "ruleName": "餐品洒漏赔付",
+      "complaintType": "DAMAGED",
+      "priority": 100,
+      "requiredEvidence": [
+        "ORDER_STATUS",
+        "ORDER_AMOUNT",
+        "DAMAGE_LEVEL"
+      ],
+      "amountType": "DAMAGE_LEVEL",
+      "partialRate": 0.50,
+      "partialCap": 20.00,
+      "method": "原路退款",
+      "approvalRequired": true
+    },
+    {
+      "ruleId": "COMP-005",
+      "ruleName": "错单赔付",
+      "complaintType": "WRONG_ORDER",
+      "priority": 95,
+      "requiredEvidence": [
+        "ORDER_STATUS"
+      ],
+      "amountType": "FIXED",
+      "fixedAmount": 5.00,
+      "method": "补送并发放优惠券",
+      "approvalRequired": false
+    }
+  ],
+  "routingMatrix": {
+    "baseByAdjudication": {
+      "ELIGIBLE": "PENDING_DECISION",
+      "INELIGIBLE": "PENDING_DECISION",
+      "NEEDS_EVIDENCE": "WAITING_EVIDENCE",
+      "EXCEEDS_CAP_ESCALATE": "ESCALATED",
+      "NO_APPLICABLE_POLICY": "PENDING_DECISION",
+      "OUT_OF_SCOPE": "PENDING_DECISION"
+    },
+    "onApprovalRequired": "ESCALATED",
+    "onUnconfirmedConflictSignal": "PENDING_DECISION",
+    "onVerificationFailure": "ESCALATED",
+    "onUntrustedText": "ESCALATED"
+  }
+}

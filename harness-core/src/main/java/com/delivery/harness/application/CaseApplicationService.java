@@ -484,7 +484,9 @@ public class CaseApplicationService {
                     degradedReasons.add(extraction.degradedReason());
                 }
             } catch (RuntimeException e) {
-                log.warn("Optional extraction failed for caseId={}: {}", caseId, e.getMessage());
+                // No caller-supplied ids or exception text in logs (log injection); the run
+                // records the degradation reason against the case.
+                log.warn("Optional extraction failed: errorType={}", e.getClass().getSimpleName());
                 degradedReasons.add("extraction_failed:" + e.getClass().getSimpleName());
                 extraction = new UnstructuredExtractionPort.ExtractionOutcome(
                         true, "extraction_failed", List.of(), false, true);

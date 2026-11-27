@@ -397,6 +397,9 @@ class RuntimeConfigurationTest {
     }
 
     private static final class Fixture {
+        // Unique prompts per candidate. A nanoTime suffix is a 15-digit run that the personal
+        // data guard can read as a legacy identity number, which made these tests flaky.
+        private int candidates;
         final PlatformStore store = PlatformTestDatabase.memory();
         final RuntimeConfigService configs;
 
@@ -418,7 +421,7 @@ class RuntimeConfigurationTest {
                                     "model",
                                     "fixed-model",
                                     "prompt",
-                                    "Explain only verified facts " + System.nanoTime(),
+                                    "Explain only verified facts, candidate " + ++candidates,
                                     "policy_version",
                                     "policy-default-v1",
                                     "deterministic_only",
